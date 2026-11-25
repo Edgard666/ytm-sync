@@ -21,6 +21,8 @@
   <label>Ne pas redemander un même titre avant (jours)</label><input type="number" name="re_request_days" min="0" value="{{ c.sync.re_request_days }}">
   <label>Similarité minimale du titre (0,30 – 1)</label><input type="number" name="title_threshold" min="0.3" max="1" step="0.01" value="{{ c.sync.title_threshold }}">
   <label>Similarité minimale de l'artiste (0 – 1)</label><input type="number" name="artist_threshold" min="0" max="1" step="0.01" value="{{ c.sync.artist_threshold }}">
+  <label>Signaler un écart de durée au-delà de (secondes, 0 = jamais)</label><input type="number" name="duration_tolerance" min="0" value="{{ c.sync.duration_tolerance }}">
+  <label class="check"><input type="checkbox" name="strict_versions" {{ 'checked' if c.sync.strict_versions }}> Distinguer les versions (Live, Remix, Acoustique, Instrumentale)</label>
 </div>
 <div class="card"><h2>Playlists Navidrome miroirs</h2>
   <label class="check"><input type="checkbox" name="ndpl_enabled" {{ 'checked' if c.nd_playlists.enabled }}> Créer / mettre à jour les playlists Navidrome</label>

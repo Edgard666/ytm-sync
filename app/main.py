@@ -193,7 +193,9 @@ def settings():
                              scan_before=f.get("scan_before") == "on",
                              title_threshold=min(1.0, max(0.3, float(f.get("title_threshold", 0.85)))),
                              artist_threshold=min(1.0, max(0.0, float(f.get("artist_threshold", 0.6)))),
-                             re_request_days=max(0, int(f.get("re_request_days", 7))))
+                             re_request_days=max(0, int(f.get("re_request_days", 7))),
+                             duration_tolerance=max(0, int(f.get("duration_tolerance", 15))),
+                             strict_versions=f.get("strict_versions") == "on")
             c["nd_playlists"].update(enabled=f.get("ndpl_enabled") == "on", public=f.get("ndpl_public") == "on",
                                      prefix=f.get("ndpl_prefix", ""))
             c["schedule"].update(enabled=f.get("sch_enabled") == "on", mode=f.get("sch_mode", "interval"),
@@ -213,6 +215,44 @@ def settings():
         flash("Paramètres enregistrés.", "ok")
         return redirect(url_for("settings"))
     return render_template("settings.html", page="set", c=c, mask=SECRET_MASK)
+
+
+@app.route("/export/tracks.csv")
+@login_required
+def export_tracks():
+    """CSV (Excel FR : separateur ';', UTF-8 avec BOM) pour verifier les correspondances."""
+    import csv
+    import io
+    from flask import Response
+    want = request.args.get("status", "all")
+    names = {p["id"]: (store.state["playlists"].get(p["id"], {}).get("title") or pl_id(p["source"]))
+             for p in store.cfg["playlists"]}
+    lab = {"present": "Présent", "missing": "Manquant", "requested": "Demandé", "error": "Erreur"}
+
+    def mmss(sec):
+        return f"{int(sec) // 60}:{int(sec) % 60:02d}" if sec else ""
+
+    rows = [e for e in store.state.get("tracks", {}).values()
+            if want == "all" or e.get("status") == want
+            or (want == "missing" and e.get("status") in ("missing", "requested", "error"))]
+    rows.sort(key=lambda e: (e.get("status") != "missing", (e.get("artist") or "").lower(), e.get("title") or ""))
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["Statut", "Artiste YouTube", "Titre YouTube", "Album YouTube", "Durée YouTube",
+                "Artiste Navidrome", "Titre Navidrome", "Album Navidrome", "Durée Navidrome",
+                "Fichier Navidrome", "Avertissement", "Playlists", "Demandé à SoulSync le",
+                "Erreur", "Lien YouTube"])
+    for e in rows:
+        w.writerow([lab.get(e.get("status"), e.get("status")), e.get("artist"), e.get("title"),
+                    e.get("album") or "", mmss(e.get("duration")),
+                    e.get("nd_artist") or "", e.get("nd_title") or "", e.get("nd_album") or "",
+                    mmss(e.get("nd_duration")), e.get("nd_path") or "", e.get("warn") or "",
+                    ", ".join(names.get(p, "?") for p in e.get("playlists", [])),
+                    dtf(e.get("requested_at")) if e.get("requested_at") else "",
+                    e.get("error") or "", f"https://music.youtube.com/watch?v={e.get('videoId')}"])
+    fname = f"ytm-sync_{want}_{dt.datetime.now():%Y%m%d_%H%M}.csv"
+    return Response("\ufeff" + buf.getvalue(), content_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
 # ------------------------------------------------------------------ API JSON
@@ -259,7 +299,7 @@ def api_test(what):
             v = Navidrome(f.get("url"), f.get("user"), pw).ping()
             return jsonify(ok=True, msg=f"Connexion OK (Navidrome {v})")
         if what == "soulsync":
-            key = f.get("api_key") or ""
+            key = (f.get("api_key") or "").strip()
             if key in ("", SECRET_MASK):
                 key = store.cfg["soulsync"]["api_key"]
             d = SoulSync(f.get("url"), key, f.get("profile_id")).downloads()

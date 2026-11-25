@@ -39,6 +39,25 @@ def sim(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
 
+VERSION_TAGS = {
+    "live": re.compile(r"\b(live|en concert|en direct|in concert)\b"),
+    "remix": re.compile(r"\b(remix|rmx|remixed|bootleg|rework)\b"),
+    "acoustic": re.compile(r"\b(acoustic|acoustique|unplugged|acustico)\b"),
+    "instrumental": re.compile(r"\b(instrumental|karaoke)\b"),
+}
+
+
+def version_tags(*texts):
+    """Versions particulieres detectees dans un titre (et eventuellement un album)."""
+    t = unicodedata.normalize("NFKD", " ".join(x or "" for x in texts)).encode("ascii", "ignore").decode().lower()
+    return frozenset(k for k, rx in VERSION_TAGS.items() if rx.search(t))
+
+
+def song_key(artist, title):
+    """Identifiant d'un morceau independant de la video (clip / audio)."""
+    return f"{norm(artist)}|{norm(title)}|{','.join(sorted(version_tags(title)))}"
+
+
 def pl_id(x):
     x = (x or "").strip()
     if "list=" in x:
@@ -93,16 +112,38 @@ class Navidrome:
     def ping(self):
         return self.call("ping").get("serverVersion", "ok")
 
-    def find(self, title, artist, t_th, a_th):
+    def find(self, title, artist, t_th, a_th, album=None, duration=0, strict_versions=True):
+        """Meilleur morceau Navidrome correspondant, ou None.
+        - versions : un titre Live/Remix/Acoustique/Instrumental ne correspond qu'a la meme version
+        - duree    : departage les candidats (le plus proche gagne) ; jamais de rejet, car SoulSync
+                     cherche par nom et retelechargerait la meme version"""
+        want = version_tags(title, album) if album else version_tags(title)
+        best, best_score, seen = None, -1.0, set()
         for q in (f"{norm(artist)} {norm(title)}", norm(title)):
             if not q.strip():
                 continue
             res = self.call("search3", query=q, songCount=40, albumCount=0, artistCount=0)
             for s in res.get("searchResult3", {}).get("song", []):
-                if sim(title, s.get("title")) >= t_th and \
-                        max(sim(artist, s.get("artist")), sim(artist, s.get("albumArtist", ""))) >= a_th:
-                    return s
-        return None
+                if s["id"] in seen:
+                    continue
+                seen.add(s["id"])
+                ts = sim(title, s.get("title"))
+                ars = max(sim(artist, s.get("artist")), sim(artist, s.get("albumArtist", "")))
+                if ts < t_th or ars < a_th:
+                    continue
+                if strict_versions:
+                    got = version_tags(s.get("title"), s.get("album")) if album else version_tags(s.get("title"))
+                    if got != want:
+                        continue
+                score = ts + ars
+                d = abs(duration - (s.get("duration") or 0)) if duration and s.get("duration") else None
+                if d is not None:
+                    score -= min(d, 120) / 120  # plus la duree est proche, mieux c'est
+                if score > best_score:
+                    best, best_score = s, score
+            if best:
+                break
+        return best
 
     def owned_playlists(self):
         pls = self.call("getPlaylists").get("playlists", {}).get("playlist", [])
@@ -144,12 +185,24 @@ class Navidrome:
 # ------------------------------------------------------------------ SoulSync
 class SoulSync:
     def __init__(self, url, key, profile):
-        self.base = (url or "").rstrip("/") + "/api/v1"
-        self.h = {"Authorization": f"Bearer {key}", "X-Profile-Id": str(profile or "1")}
+        self.base = (url or "").strip().rstrip("/") + "/api/v1"
+        self.h = {"Authorization": f"Bearer {(key or '').strip()}", "X-Profile-Id": str(profile or "1").strip()}
+
+    @staticmethod
+    def _check(r):
+        if r.status_code >= 400:
+            try:
+                j = r.json()
+                detail = j.get("error") or j.get("message") or j
+                if isinstance(detail, dict):
+                    detail = " - ".join(str(v) for v in detail.values())
+            except ValueError:
+                detail = r.text[:200]
+            raise RuntimeError(f"SoulSync HTTP {r.status_code} : {detail}")
 
     def downloads(self):
         r = requests.get(f"{self.base}/downloads", headers=self.h, timeout=20)
-        r.raise_for_status()
+        self._check(r)
         return (r.json().get("data") or {}).get("downloads", [])
 
     def add(self, t):
@@ -243,6 +296,8 @@ class SyncRunner:
         DRY = s["dry_run"] if dry is None else dry
         t_th, a_th = float(s["title_threshold"]), float(s["artist_threshold"])
         rereq = float(s["re_request_days"]) * 86400
+        dur_tol = float(s.get("duration_tolerance", 15))
+        strict_versions = bool(s.get("strict_versions", True))
         now = time.time()
         self.log(f"=== YTM Sync v{VERSION} — {trigger} — {'SIMULATION' if DRY else 'RÉEL'} ===")
 
@@ -261,8 +316,13 @@ class SyncRunner:
         old = self.store.state.get("tracks", {})
         tracks = {} if only is None else copy.deepcopy(old)
         nd_lists = nd.owned_playlists() if npl["enabled"] else {}
-        st = dict(total=0, present=0, missing=0, sent=0, pending=0, errors=0)
+        st = dict(total=0, present=0, missing=0, sent=0, pending=0, errors=0, warns=0)
         run_id = secrets.token_hex(4)
+        req_keys = {}  # song_key -> derniere demande SoulSync (toutes videos confondues)
+        for o in old.values():
+            if o.get("requested_at") and o.get("key"):
+                req_keys[o["key"]] = max(req_keys.get(o["key"], 0), o["requested_at"])
+        listed = set()  # manquants deja listes pendant ce passage
 
         pls = [p for p in cfg["playlists"] if p.get("enabled", True) and (only is None or p["id"] in only)]
         for pi, p in enumerate(pls, 1):
@@ -300,8 +360,12 @@ class SyncRunner:
                     e["_run"] = run_id
                     e["requested_at"] = (old.get(vid) or {}).get("requested_at")
                     st["total"] += 1
+                    e["key"] = song_key(artist, e["title"])
+                    dur = tr.get("duration_seconds") or 0
+                    e["duration"] = dur
                     try:
-                        hit = nd.find(e["title"], artist, t_th, a_th)
+                        hit = nd.find(e["title"], artist, t_th, a_th, album=e["album"], duration=dur,
+                                      strict_versions=strict_versions)
                     except Exception as ex:
                         self.log(f"  ?? Navidrome : {label} : {ex}")
                         e["status"] = "error"
@@ -309,16 +373,36 @@ class SyncRunner:
                         st["errors"] += 1
                         continue
                     if hit:
-                        e.update(status="present", nd_id=hit["id"], requested_at=None, error=None)
+                        e.update(status="present", nd_id=hit["id"], requested_at=None, error=None, warn=None,
+                                 nd_artist=hit.get("artist"), nd_title=hit.get("title"),
+                                 nd_album=hit.get("album"), nd_duration=hit.get("duration"),
+                                 nd_path=hit.get("path"))
                         st["present"] += 1
+                        nd_dur = hit.get("duration") or 0
+                        # piste audio officielle (pas un clip, souvent plus long) dont la duree differe
+                        if dur_tol and dur and nd_dur and tr.get("videoType") == "MUVT_ATV" \
+                                and abs(dur - nd_dur) > dur_tol:
+                            e["warn"] = f"Durée différente : YouTube {dur // 60}:{dur % 60:02d}, " \
+                                        f"Navidrome {nd_dur // 60}:{nd_dur % 60:02d} (autre version ?)"
+                            st["warns"] += 1
+                            self.log(f"  ~~ {label} : {e['warn']}")
                     else:
                         st["missing"] += 1
-                        e["nd_id"] = None
-                        if e["requested_at"] and now - e["requested_at"] < rereq:
+                        e.update(nd_id=None, nd_artist=None, nd_title=None, nd_album=None,
+                                 nd_duration=None, nd_path=None, warn=None)
+                        last_req = max(e["requested_at"] or 0, req_keys.get(e["key"], 0))
+                        if last_req and now - last_req < rereq:
+                            if not e["requested_at"]:
+                                self.log(f"  == déjà demandé (même morceau, autre vidéo) : {label}")
                             e["status"] = "requested"
+                            e["requested_at"] = e["requested_at"] or last_req
                             st["pending"] += 1
+                        elif e["key"] in listed:
+                            e["status"] = "missing"
+                            self.log(f"  == doublon ignoré (même morceau, autre vidéo) : {label}")
                         elif DRY or not ss:
                             e["status"] = "missing"
+                            listed.add(e["key"])
                             self.log(f"  -- manquant : {label}")
                         else:
                             code, txt = ss.add({"videoId": vid, "title": e["title"], "artists": artists,
@@ -326,6 +410,7 @@ class SyncRunner:
                                                 "duration_ms": (tr.get("duration_seconds") or 0) * 1000})
                             if code < 300:
                                 e.update(status="requested", requested_at=now, error=None)
+                                req_keys[e["key"]] = now
                                 st["sent"] += 1
                                 self.log(f"  ++ envoyé à SoulSync : {label}")
                             else:
@@ -358,7 +443,7 @@ class SyncRunner:
             code = ss.process()
             self.log(f"Traitement wishlist SoulSync : HTTP {code}" + (" (déjà en cours)" if code == 409 else ""))
         self.log(f"Résumé : {st['total']} titres | {st['present']} présents | {st['missing']} manquants | "
-                 f"{st['sent']} envoyés | {st['pending']} en attente | {st['errors']} erreurs")
+                 f"{st['sent']} envoyés | {st['pending']} en attente | {st['warns']} durées à vérifier | {st['errors']} erreurs")
         return dict(dry=DRY, **st)
 
     def _pl_state(self, pid, data):

@@ -1,19 +1,23 @@
 {% extends "base.html" %}{% block body %}
 <div class="row" style="margin-bottom:12px"><h1 style="margin:0">Titres</h1><div class="sp"></div>
+<a class="btn" href="/export/tracks.csv?status=missing">Exporter les manquants</a>
+<a class="btn" href="/export/tracks.csv?status=present">Exporter les présents</a>
+<a class="btn" href="/export/tracks.csv?status=all">Tout exporter</a>
 <button class="btn" onclick="rereqAll()">Tout redemander au prochain passage</button></div>
 <div class="card">
 <div class="row"><div class="tabs" id="tabs">
   <button data-f="all" class="on">Tous</button><button data-f="missing">Manquants</button><button data-f="requested">Demandés</button>
-  <button data-f="error">Erreurs</button><button data-f="present">Présents</button></div>
+  <button data-f="error">Erreurs</button><button data-f="warn">Durée à vérifier</button><button data-f="present">Présents</button></div>
 <div class="sp"></div><input type="text" id="q" placeholder="Rechercher artiste / titre…" style="max-width:280px"></div>
 <p class="mut" id="cnt"></p>
-<table id="t"><tr><th>Artiste</th><th>Titre</th><th>Album</th><th>Playlists</th><th>Statut</th><th>Demandé le</th><th></th></tr>
+<table id="t"><tr><th>Artiste</th><th>Titre</th><th>Album</th><th>Trouvé dans Navidrome</th><th>Playlists</th><th>Statut</th><th>Demandé le</th><th></th></tr>
 {% set lab = {'present':('Présent','b-ok'),'missing':('Manquant','b-warn'),'requested':('Demandé','b-info'),'error':('Erreur','b-err')} %}
 {% for e in rows %}{% set l = lab.get(e.status, ('?','b-warn')) %}
-<tr data-s="{{ e.status }}" data-q="{{ (e.artist ~ ' ' ~ e.title)|lower }}">
+<tr data-s="{{ e.status }}" data-w="{{ 1 if e.warn else 0 }}" data-q="{{ (e.artist ~ ' ' ~ e.title)|lower }}">
 <td>{{ e.artist }}</td><td><a href="https://music.youtube.com/watch?v={{ e.videoId }}" target="_blank" rel="noopener">{{ e.title }}</a></td><td class="mut">{{ e.album or '' }}</td>
+<td class="mut">{% if e.nd_title %}{{ e.nd_artist }} — {{ e.nd_title }}{% if e.nd_album %}<br><small>{{ e.nd_album }}</small>{% endif %}{% endif %}</td>
 <td class="mut">{% for p in e.playlists %}{{ names.get(p, '?') }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
-<td><span class="badge {{ l[1] }}" {% if e.error %}title="{{ e.error }}"{% endif %}>{{ l[0] }}</span></td>
+<td><span class="badge {{ l[1] }}" {% if e.error %}title="{{ e.error }}"{% endif %}>{{ l[0] }}</span>{% if e.warn %} <span class="badge b-warn" title="{{ e.warn }}">⚠ durée</span>{% endif %}</td>
 <td class="mut">{{ e.requested_at|dtf }}</td>
 <td>{% if e.status != 'present' %}<button class="btn s" onclick="rereq(['{{ e.videoId }}'])">Redemander</button>{% endif %}</td></tr>
 {% endfor %}</table>
@@ -23,7 +27,7 @@
 {% block js %}<script>
 let f='all';const rows=[...document.querySelectorAll('#t tr[data-s]')];
 function apply(){const q=document.getElementById('q').value.toLowerCase();let n=0;
-  rows.forEach(r=>{const ok=(f==='all'||r.dataset.s===f)&&(!q||r.dataset.q.includes(q));r.style.display=ok?'':'none';if(ok)n++});
+  rows.forEach(r=>{const ok=(f==='all'||r.dataset.s===f||(f==='warn'&&r.dataset.w==='1'))&&(!q||r.dataset.q.includes(q));r.style.display=ok?'':'none';if(ok)n++});
   document.getElementById('cnt').textContent=n+' titre(s)'}
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');f=b.dataset.f;apply()});
 document.getElementById('q').oninput=apply;apply();

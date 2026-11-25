@@ -36,6 +36,8 @@ DEFAULT_CFG = {
         "title_threshold": 0.85,
         "artist_threshold": 0.60,
         "re_request_days": 7,
+        "duration_tolerance": 15,
+        "strict_versions": True,
     },
     "nd_playlists": {"enabled": True, "prefix": "YT - ", "public": False},
     "schedule": {"enabled": False, "mode": "interval", "interval_hours": 6, "daily_time": "03:00"},
