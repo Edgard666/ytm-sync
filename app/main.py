@@ -240,13 +240,16 @@ def export_tracks():
     w = csv.writer(buf, delimiter=";")
     w.writerow(["Statut", "Artiste YouTube", "Titre YouTube", "Album YouTube", "Durée YouTube",
                 "Artiste Navidrome", "Titre Navidrome", "Album Navidrome", "Durée Navidrome",
-                "Fichier Navidrome", "Avertissement", "Playlists", "Demandé à SoulSync le",
+                "Fichier Navidrome", "Correction manuelle", "Avertissement", "Playlists", "Demandé à SoulSync le",
                 "Erreur", "Lien YouTube"])
     for e in rows:
         w.writerow([lab.get(e.get("status"), e.get("status")), e.get("artist"), e.get("title"),
                     e.get("album") or "", mmss(e.get("duration")),
                     e.get("nd_artist") or "", e.get("nd_title") or "", e.get("nd_album") or "",
-                    mmss(e.get("nd_duration")), e.get("nd_path") or "", e.get("warn") or "",
+                    mmss(e.get("nd_duration")), e.get("nd_path") or "",
+                    ("Lien manuel" if e.get("manual") else "") +
+                    (f"{' + ' if e.get('manual') else ''}{e['blocked']} lien(s) refusé(s)" if e.get("blocked") else ""),
+                    e.get("warn") or "",
                     ", ".join(names.get(p, "?") for p in e.get("playlists", [])),
                     dtf(e.get("requested_at")) if e.get("requested_at") else "",
                     e.get("error") or "", f"https://music.youtube.com/watch?v={e.get('videoId')}"])
@@ -332,6 +335,81 @@ def api_ss_downloads():
         return jsonify(ok=True, downloads=SoulSync(c["url"], c["api_key"], c["profile_id"]).downloads())
     except Exception as ex:
         return jsonify(ok=False, msg=str(ex))
+
+
+def _nd():
+    c = store.cfg["navidrome"]
+    return Navidrome(c["url"], c["user"], c["password"])
+
+
+def _nd_fields(song):
+    return dict(nd_id=song["id"], nd_artist=song.get("artist"), nd_title=song.get("title"),
+                nd_album=song.get("album"), nd_duration=song.get("duration"), nd_path=song.get("path"))
+
+
+@app.route("/api/navidrome/search")
+@login_required
+def api_nd_search():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify(ok=True, songs=[])
+    try:
+        songs = _nd().search_songs(q, 40)
+        return jsonify(ok=True, songs=[{"id": x["id"], "artist": x.get("artist"), "title": x.get("title"),
+                                        "album": x.get("album"), "duration": x.get("duration"),
+                                        "path": x.get("path")} for x in songs])
+    except Exception as ex:
+        return jsonify(ok=False, msg=str(ex))
+
+
+@app.route("/api/tracks/<vid>/link", methods=["POST"])
+@login_required
+def api_link(vid):
+    nd_id = (request.get_json(silent=True) or {}).get("nd_id")
+    try:
+        song = _nd().get_song(nd_id)
+    except Exception as ex:
+        return jsonify(ok=False, msg=f"Morceau Navidrome introuvable : {ex}")
+    with store.lock:
+        ov = store.cfg.setdefault("overrides", {}).setdefault(vid, {})
+        ov["nd_id"] = nd_id
+        ov["blocked"] = [b for b in ov.get("blocked", []) if b != nd_id]
+        store.save_cfg()
+        e = store.state["tracks"].get(vid)
+        if e:
+            e.update(status="present", manual=True, requested_at=None, error=None, warn=None, **_nd_fields(song))
+            store.save_state()
+    return jsonify(ok=True)
+
+
+@app.route("/api/tracks/<vid>/unlink", methods=["POST"])
+@login_required
+def api_unlink(vid):
+    with store.lock:
+        e = store.state["tracks"].get(vid) or {}
+        ov = store.cfg.setdefault("overrides", {}).setdefault(vid, {})
+        if e.get("nd_id") and e["nd_id"] not in ov.setdefault("blocked", []):
+            ov["blocked"].append(e["nd_id"])
+        ov.pop("nd_id", None)
+        store.save_cfg()
+        if e:
+            e.update(status="missing", manual=False, blocked=len(ov["blocked"]), nd_id=None, nd_artist=None,
+                     nd_title=None, nd_album=None, nd_duration=None, nd_path=None, warn=None)
+            store.save_state()
+    return jsonify(ok=True)
+
+
+@app.route("/api/tracks/<vid>/reset", methods=["POST"])
+@login_required
+def api_reset(vid):
+    with store.lock:
+        store.cfg.setdefault("overrides", {}).pop(vid, None)
+        store.save_cfg()
+        e = store.state["tracks"].get(vid)
+        if e:
+            e.update(manual=False, blocked=0)
+            store.save_state()
+    return jsonify(ok=True)
 
 
 @app.route("/api/tracks/rerequest", methods=["POST"])

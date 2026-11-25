@@ -112,7 +112,14 @@ class Navidrome:
     def ping(self):
         return self.call("ping").get("serverVersion", "ok")
 
-    def find(self, title, artist, t_th, a_th, album=None, duration=0, strict_versions=True):
+    def get_song(self, song_id):
+        return self.call("getSong", id=song_id).get("song")
+
+    def search_songs(self, q, n=30):
+        return self.call("search3", query=q, songCount=n, albumCount=0, artistCount=0) \
+            .get("searchResult3", {}).get("song", [])
+
+    def find(self, title, artist, t_th, a_th, album=None, duration=0, strict_versions=True, blocked=()):
         """Meilleur morceau Navidrome correspondant, ou None.
         - versions : un titre Live/Remix/Acoustique/Instrumental ne correspond qu'a la meme version
         - duree    : departage les candidats (le plus proche gagne) ; jamais de rejet, car SoulSync
@@ -124,7 +131,7 @@ class Navidrome:
                 continue
             res = self.call("search3", query=q, songCount=40, albumCount=0, artistCount=0)
             for s in res.get("searchResult3", {}).get("song", []):
-                if s["id"] in seen:
+                if s["id"] in seen or s["id"] in blocked:
                     continue
                 seen.add(s["id"])
                 ts = sim(title, s.get("title"))
@@ -318,6 +325,7 @@ class SyncRunner:
         nd_lists = nd.owned_playlists() if npl["enabled"] else {}
         st = dict(total=0, present=0, missing=0, sent=0, pending=0, errors=0, warns=0)
         run_id = secrets.token_hex(4)
+        overrides = cfg.get("overrides", {})  # corrections manuelles par videoId
         req_keys = {}  # song_key -> derniere demande SoulSync (toutes videos confondues)
         for o in old.values():
             if o.get("requested_at") and o.get("key"):
@@ -363,9 +371,20 @@ class SyncRunner:
                     e["key"] = song_key(artist, e["title"])
                     dur = tr.get("duration_seconds") or 0
                     e["duration"] = dur
+                    ov = overrides.get(vid, {})
+                    e["manual"] = False
+                    e["blocked"] = len(ov.get("blocked", []))
                     try:
-                        hit = nd.find(e["title"], artist, t_th, a_th, album=e["album"], duration=dur,
-                                      strict_versions=strict_versions)
+                        hit = None
+                        if ov.get("nd_id"):  # lien manuel
+                            try:
+                                hit = nd.get_song(ov["nd_id"])
+                                e["manual"] = True
+                            except Exception:
+                                self.log(f"  ?? Lien manuel introuvable dans Navidrome, recherche auto : {label}")
+                        if not hit:
+                            hit = nd.find(e["title"], artist, t_th, a_th, album=e["album"], duration=dur,
+                                          strict_versions=strict_versions, blocked=set(ov.get("blocked", [])))
                     except Exception as ex:
                         self.log(f"  ?? Navidrome : {label} : {ex}")
                         e["status"] = "error"
@@ -380,7 +399,7 @@ class SyncRunner:
                         st["present"] += 1
                         nd_dur = hit.get("duration") or 0
                         # piste audio officielle (pas un clip, souvent plus long) dont la duree differe
-                        if dur_tol and dur and nd_dur and tr.get("videoType") == "MUVT_ATV" \
+                        if not e["manual"] and dur_tol and dur and nd_dur and tr.get("videoType") == "MUVT_ATV" \
                                 and abs(dur - nd_dur) > dur_tol:
                             e["warn"] = f"Durée différente : YouTube {dur // 60}:{dur % 60:02d}, " \
                                         f"Navidrome {nd_dur // 60}:{nd_dur % 60:02d} (autre version ?)"

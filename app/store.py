@@ -29,6 +29,7 @@ DEFAULT_CFG = {
     "navidrome": {"url": "", "user": "", "password": ""},
     "soulsync": {"url": "", "api_key": "", "profile_id": "1"},
     "playlists": [],  # {id, source, nd_name, enabled}
+    "overrides": {},  # videoId -> {"nd_id": lien manuel, "blocked": [ids Navidrome refuses]}
     "sync": {
         "dry_run": True,
         "trigger_process": True,

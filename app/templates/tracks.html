@@ -7,30 +7,57 @@
 <div class="card">
 <div class="row"><div class="tabs" id="tabs">
   <button data-f="all" class="on">Tous</button><button data-f="missing">Manquants</button><button data-f="requested">Demandés</button>
-  <button data-f="error">Erreurs</button><button data-f="warn">Durée à vérifier</button><button data-f="present">Présents</button></div>
+  <button data-f="error">Erreurs</button><button data-f="warn">Durée à vérifier</button><button data-f="manual">Corrigés</button><button data-f="present">Présents</button></div>
 <div class="sp"></div><input type="text" id="q" placeholder="Rechercher artiste / titre…" style="max-width:280px"></div>
+<div class="help"><b>Lier…</b> : associer toi-même un morceau Navidrome (le titre devient présent, jamais demandé à SoulSync). <b>Délier</b> : refuser une correspondance fausse. Tes corrections sont gardées et appliquées aux playlists Navidrome dès la prochaine synchro.</div>
 <p class="mut" id="cnt"></p>
 <table id="t"><tr><th>Artiste</th><th>Titre</th><th>Album</th><th>Trouvé dans Navidrome</th><th>Playlists</th><th>Statut</th><th>Demandé le</th><th></th></tr>
 {% set lab = {'present':('Présent','b-ok'),'missing':('Manquant','b-warn'),'requested':('Demandé','b-info'),'error':('Erreur','b-err')} %}
 {% for e in rows %}{% set l = lab.get(e.status, ('?','b-warn')) %}
-<tr data-s="{{ e.status }}" data-w="{{ 1 if e.warn else 0 }}" data-q="{{ (e.artist ~ ' ' ~ e.title)|lower }}">
+<tr data-s="{{ e.status }}" data-w="{{ 1 if e.warn else 0 }}" data-m="{{ 1 if (e.manual or e.blocked) else 0 }}" data-q="{{ (e.artist ~ ' ' ~ e.title)|lower }}">
 <td>{{ e.artist }}</td><td><a href="https://music.youtube.com/watch?v={{ e.videoId }}" target="_blank" rel="noopener">{{ e.title }}</a></td><td class="mut">{{ e.album or '' }}</td>
 <td class="mut">{% if e.nd_title %}{{ e.nd_artist }} — {{ e.nd_title }}{% if e.nd_album %}<br><small>{{ e.nd_album }}</small>{% endif %}{% endif %}</td>
 <td class="mut">{% for p in e.playlists %}{{ names.get(p, '?') }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
-<td><span class="badge {{ l[1] }}" {% if e.error %}title="{{ e.error }}"{% endif %}>{{ l[0] }}</span>{% if e.warn %} <span class="badge b-warn" title="{{ e.warn }}">⚠ durée</span>{% endif %}</td>
+<td><span class="badge {{ l[1] }}" {% if e.error %}title="{{ e.error }}"{% endif %}>{{ l[0] }}</span>{% if e.warn %} <span class="badge b-warn" title="{{ e.warn }}">⚠ durée</span>{% endif %}{% if e.manual %} <span class="badge b-info">lien manuel</span>{% endif %}{% if e.blocked %} <span class="badge b-err" title="Correspondances refusées par toi">{{ e.blocked }} refusé(s)</span>{% endif %}</td>
 <td class="mut">{{ e.requested_at|dtf }}</td>
-<td>{% if e.status != 'present' %}<button class="btn s" onclick="rereq(['{{ e.videoId }}'])">Redemander</button>{% endif %}</td></tr>
+<td style="white-space:nowrap">
+  <button class="btn s" onclick='openLink({{ e.videoId|tojson }}, {{ ((e.artist or "") ~ " " ~ (e.title or ""))|tojson }})'>Lier…</button>
+  {% if e.status == 'present' %}<button class="btn s d" onclick="act('{{ e.videoId }}','unlink','Ce lien est faux ? Il sera refusé et la recherche continuera.')">Délier</button>{% endif %}
+  {% if e.manual or e.blocked %}<button class="btn s" onclick="act('{{ e.videoId }}','reset','Effacer tes corrections pour ce titre ?')">Réinitialiser</button>{% endif %}
+  {% if e.status != 'present' %}<button class="btn s" onclick="rereq(['{{ e.videoId }}'])">Redemander</button>{% endif %}
+</td></tr>
 {% endfor %}</table>
 {% if not rows %}<p class="mut">Aucun titre : lance une première synchro (ou une simulation).</p>{% endif %}
 </div>
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:20;align-items:flex-start;justify-content:center;padding-top:8vh">
+ <div class="card" style="width:min(820px,94vw);max-height:80vh;overflow:auto">
+  <div class="row"><h2 style="margin:0">Lier à un morceau Navidrome</h2><div class="sp"></div><button class="btn s" onclick="closeLink()">Fermer</button></div>
+  <p class="mut" id="mTrack"></p>
+  <div class="row"><input type="text" id="mQ" placeholder="Rechercher dans Navidrome…" style="flex:1"><button class="btn p" onclick="ndSearch()">Rechercher</button></div>
+  <div id="mRes" style="margin-top:12px"></div>
+ </div></div>
 {% endblock %}
 {% block js %}<script>
 let f='all';const rows=[...document.querySelectorAll('#t tr[data-s]')];
 function apply(){const q=document.getElementById('q').value.toLowerCase();let n=0;
-  rows.forEach(r=>{const ok=(f==='all'||r.dataset.s===f||(f==='warn'&&r.dataset.w==='1'))&&(!q||r.dataset.q.includes(q));r.style.display=ok?'':'none';if(ok)n++});
+  rows.forEach(r=>{const ok=(f==='all'||r.dataset.s===f||(f==='warn'&&r.dataset.w==='1')||(f==='manual'&&r.dataset.m==='1'))&&(!q||r.dataset.q.includes(q));r.style.display=ok?'':'none';if(ok)n++});
   document.getElementById('cnt').textContent=n+' titre(s)'}
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');f=b.dataset.f;apply()});
 document.getElementById('q').oninput=apply;apply();
+let curVid=null;
+function mmss(s){return s?Math.floor(s/60)+':'+String(s%60).padStart(2,'0'):''}
+function openLink(vid,label){curVid=vid;document.getElementById('mTrack').textContent='YouTube : '+label;
+  const q=document.getElementById('mQ');q.value=label.replace(/\(.*?\)|\[.*?\]/g,'').replace(/ - Topic/i,'').trim();
+  document.getElementById('modal').style.display='flex';ndSearch();q.focus()}
+function closeLink(){document.getElementById('modal').style.display='none'}
+document.getElementById('mQ').addEventListener('keydown',ev=>{if(ev.key==='Enter')ndSearch()});
+async function ndSearch(){const el=document.getElementById('mRes');el.textContent='Recherche…';
+  const r=await api('/api/navidrome/search?q='+encodeURIComponent(document.getElementById('mQ').value));
+  if(!r.ok){el.innerHTML='<div class="flash err">'+esc(r.msg)+'</div>';return}
+  if(!r.songs.length){el.innerHTML='<p class="mut">Aucun résultat. Essaie avec seulement le titre ou l\'artiste.</p>';return}
+  el.innerHTML='<table><tr><th>Artiste</th><th>Titre</th><th>Album</th><th>Durée</th><th></th></tr>'+r.songs.map(x=>`<tr><td>${esc(x.artist)}</td><td title="${esc(x.path)}">${esc(x.title)}</td><td class="mut">${esc(x.album)}</td><td class="mut">${mmss(x.duration)}</td><td><button class="btn s p" onclick="doLink('${esc(x.id)}')">Lier</button></td></tr>`).join('')+'</table>'}
+async function doLink(ndId){const r=await api('/api/tracks/'+curVid+'/link',{nd_id:ndId});if(!r.ok){alert(r.msg);return}location.reload()}
+async function act(vid,what,msg){if(!confirm(msg))return;await api('/api/tracks/'+vid+'/'+what,{});location.reload()}
 async function rereq(ids){await api('/api/tracks/rerequest',{ids});location.reload()}
 async function rereqAll(){if(confirm('Tous les titres non présents seront renvoyés à SoulSync au prochain passage. Continuer ?')){await api('/api/tracks/rerequest',{});location.reload()}}
 </script>{% endblock %}
