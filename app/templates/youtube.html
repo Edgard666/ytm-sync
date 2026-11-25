@@ -1,0 +1,33 @@
+{% extends "base.html" %}{% block body %}
+<h1>Compte YouTube Music</h1>
+<div class="card"><h2>État</h2>
+{% if connected and account %}<p><span class="badge b-ok">Connecté</span> &nbsp;{{ account }}</p>
+{% elif connected %}<p><span class="badge b-err">Session invalide ou expirée</span> <span class="mut">{{ err }}</span></p><p>Recopie de nouveaux en-têtes ci-dessous.</p>
+{% else %}<p><span class="badge b-warn">Non connecté</span> &nbsp;<span class="mut">seules les playlists publiques sont lisibles.</span></p>{% endif %}
+{% if connected %}<form method="post"><input type="hidden" name="action" value="logout"><button class="btn d s" onclick="return confirm('Supprimer la session ?')">Supprimer la session</button></form>{% endif %}
+</div>
+
+<div class="card"><h2>{{ 'Renouveler la connexion' if connected else 'Se connecter (playlists privées)' }}</h2>
+<div class="help"><b>Firefox</b> (le plus simple) :
+<ol><li>Ouvre <a href="https://music.youtube.com" target="_blank" rel="noopener">music.youtube.com</a> connecté au bon compte (ou à la bonne chaîne de marque).</li>
+<li><code>F12</code> → onglet <b>Réseau</b> → filtre <code>browse</code>.</li>
+<li>Clique sur <b>Bibliothèque</b> : une requête <b>POST</b> <code>browse?…</code> apparaît.</li>
+<li>Clic droit dessus → <b>Copier la valeur</b> → <b>Copier les en-têtes de la requête</b>, puis colle ci-dessous.</li></ol>
+<b>Chrome / Edge</b> : clique sur la requête → onglet <b>En-têtes</b> → « En-têtes de requête » → coche <b>Brut</b> (ou <i>View source</i>) → copie tout.<br>
+La session reste valide tant que tu ne te déconnectes pas de YouTube dans ce navigateur (évite la navigation privée).</div>
+<form method="post"><input type="hidden" name="action" value="headers">
+<textarea name="headers" placeholder="POST /youtubei/v1/browse?…&#10;Host: music.youtube.com&#10;Cookie: …" required></textarea>
+<p><button class="btn p">Enregistrer la connexion</button></p></form></div>
+
+<div class="card" id="library"><div class="row"><h2 style="margin:0">Importer des playlists de mon compte</h2><div class="sp"></div>
+<button class="btn s" onclick="loadLib()" {{ 'disabled' if not connected }}>Charger mes playlists</button></div>
+{% if not connected %}<p class="mut">Connecte d'abord ton compte.</p>{% endif %}
+<form method="post" id="libForm" style="display:none"><input type="hidden" name="action" value="import">
+<div id="lib"></div><p><button class="btn p">Ajouter la sélection</button></p></form></div>
+{% endblock %}
+{% block js %}<script>
+async function loadLib(){const r=await api('/api/youtube/library');const f=document.getElementById('libForm'),el=document.getElementById('lib');f.style.display='block';
+  if(!r.ok){el.innerHTML='<p class="flash err">'+esc(r.msg)+'</p>';return}
+  el.innerHTML='<table><tr><th></th><th>Playlist</th><th>Titres</th></tr>'+r.playlists.map(p=>`<tr><td><input type="checkbox" name="pl" value="${esc(p.id)}" ${p.added?'disabled checked':''} style="width:18px;height:18px;accent-color:var(--acc)"></td><td>${esc(p.title)} ${p.added?'<span class="badge b-ok">déjà surveillée</span>':''}</td><td class="mut">${esc(p.count??'')}</td></tr>`).join('')+'</table>'}
+if(location.hash==='#library'&&{{ 'true' if connected else 'false' }})loadLib();
+</script>{% endblock %}

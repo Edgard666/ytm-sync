@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>YTM Sync v{{ version }}</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}"></head>
+<body>
+<header>
+  <a class="brand" href="/"><i class="dot"></i><span>YTM Sync</span></a>
+  <nav>
+    <a href="/" class="{{ 'on' if page=='dash' }}">Tableau de bord</a>
+    <a href="/playlists" class="{{ 'on' if page=='pl' }}">Playlists</a>
+    <a href="/tracks" class="{{ 'on' if page=='tr' }}">Titres</a>
+    <a href="/youtube" class="{{ 'on' if page=='yt' }}">Compte YouTube</a>
+    <a href="/settings" class="{{ 'on' if page=='set' }}">Paramètres</a>
+  </nav>
+  <a href="/logout" class="mut">Déconnexion</a>
+</header>
+<main>
+{% with msgs = get_flashed_messages(with_categories=true) %}{% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}{% endwith %}
+{% block body %}{% endblock %}
+</main>
+<footer>YTM Sync v{{ version }} — YouTube Music → Navidrome → SoulSync</footer>
+<script>
+async function api(url, body){const r=await fetch(url,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(r.status===401){location='/login';return{}}return r.json()}
+function fmt(ts){if(!ts)return'—';const d=new Date(ts*1000);return d.toLocaleDateString('fr-BE')+' '+d.toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})}
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+</script>
+{% block js %}{% endblock %}
+</body></html>

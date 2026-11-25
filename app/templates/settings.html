@@ -1,0 +1,48 @@
+{% extends "base.html" %}{% block body %}
+<h1>Paramètres</h1>
+<form method="post">
+<div class="grid">
+<div class="card"><h2>Navidrome</h2>
+  <label>URL</label><input type="text" name="nd_url" id="nd_url" value="{{ c.navidrome.url }}" placeholder="http://192.168.5.100:4533">
+  <label>Utilisateur (propriétaire des playlists miroirs)</label><input type="text" name="nd_user" id="nd_user" value="{{ c.navidrome.user }}">
+  <label>Mot de passe</label><input type="password" name="nd_pass" id="nd_pass" value="{{ mask if c.navidrome.password }}" autocomplete="new-password">
+  <p><button type="button" class="btn s" onclick="test('navidrome')">Tester</button><span class="test-res" id="r_navidrome"></span></p>
+</div>
+<div class="card"><h2>SoulSync</h2>
+  <label>URL</label><input type="text" name="ss_url" id="ss_url" value="{{ c.soulsync.url }}" placeholder="http://192.168.5.100:8008">
+  <label>Clé API (SoulSync → Paramètres → API, « sk_… »)</label><input type="password" name="ss_key" id="ss_key" value="{{ mask if c.soulsync.api_key }}" autocomplete="new-password">
+  <label>ID de profil</label><input type="text" name="ss_profile" id="ss_profile" value="{{ c.soulsync.profile_id }}">
+  <p><button type="button" class="btn s" onclick="test('soulsync')">Tester</button><span class="test-res" id="r_soulsync"></span></p>
+</div>
+<div class="card"><h2>Synchronisation</h2>
+  <label class="check"><input type="checkbox" name="dry_run" {{ 'checked' if c.sync.dry_run }}> Mode simulation par défaut (rien n'est envoyé ni modifié)</label>
+  <label class="check"><input type="checkbox" name="trigger_process" {{ 'checked' if c.sync.trigger_process }}> Lancer le téléchargement SoulSync après ajout</label>
+  <label class="check"><input type="checkbox" name="scan_before" {{ 'checked' if c.sync.scan_before }}> Scanner la bibliothèque Navidrome avant chaque synchro (compte admin requis)</label>
+  <label>Ne pas redemander un même titre avant (jours)</label><input type="number" name="re_request_days" min="0" value="{{ c.sync.re_request_days }}">
+  <label>Similarité minimale du titre (0,30 – 1)</label><input type="number" name="title_threshold" min="0.3" max="1" step="0.01" value="{{ c.sync.title_threshold }}">
+  <label>Similarité minimale de l'artiste (0 – 1)</label><input type="number" name="artist_threshold" min="0" max="1" step="0.01" value="{{ c.sync.artist_threshold }}">
+</div>
+<div class="card"><h2>Playlists Navidrome miroirs</h2>
+  <label class="check"><input type="checkbox" name="ndpl_enabled" {{ 'checked' if c.nd_playlists.enabled }}> Créer / mettre à jour les playlists Navidrome</label>
+  <label class="check"><input type="checkbox" name="ndpl_public" {{ 'checked' if c.nd_playlists.public }}> Playlists publiques (visibles des autres utilisateurs)</label>
+  <label>Préfixe quand aucun nom n'est donné</label><input type="text" name="ndpl_prefix" value="{{ c.nd_playlists.prefix }}">
+</div>
+<div class="card"><h2>Planification</h2>
+  <label class="check"><input type="checkbox" name="sch_enabled" {{ 'checked' if c.schedule.enabled }}> Synchro automatique</label>
+  <label>Mode</label><select name="sch_mode"><option value="interval" {{ 'selected' if c.schedule.mode=='interval' }}>Toutes les N heures</option><option value="daily" {{ 'selected' if c.schedule.mode=='daily' }}>Une fois par jour</option></select>
+  <label>Intervalle (heures)</label><input type="number" name="sch_interval" min="0.25" step="0.25" value="{{ c.schedule.interval_hours }}">
+  <label>Heure quotidienne</label><input type="time" name="sch_daily" value="{{ c.schedule.daily_time }}">
+</div>
+<div class="card"><h2>Interface</h2>
+  <label>Nouveau mot de passe (laisser vide pour ne pas changer)</label><input type="password" name="new_password" autocomplete="new-password">
+  <label>Nombre de journaux d'exécution conservés</label><input type="number" name="logs_keep" min="1" value="{{ c.logs_keep }}">
+</div>
+</div>
+<p><button class="btn p">Enregistrer les paramètres</button></p>
+</form>
+{% endblock %}
+{% block js %}<script>
+async function test(w){const el=document.getElementById('r_'+w);el.textContent='…';const v=id=>document.getElementById(id).value;
+  const body=w==='navidrome'?{url:v('nd_url'),user:v('nd_user'),password:v('nd_pass')}:{url:v('ss_url'),api_key:v('ss_key'),profile_id:v('ss_profile')};
+  const r=await api('/api/test/'+w,body);el.innerHTML=`<span class="badge ${r.ok?'b-ok':'b-err'}">${esc(r.msg)}</span>`}
+</script>{% endblock %}

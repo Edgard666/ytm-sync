@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>ytm-sync</Name>
+  <Repository>ghcr.io/edgard666/ytm-sync:latest</Repository>
+  <Registry>https://github.com/Edgard666/ytm-sync/pkgs/container/ytm-sync</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Overview>YTM Sync : surveille des playlists YouTube Music, les compare à la bibliothèque Navidrome, crée les playlists miroirs dans Navidrome et envoie les titres manquants à SoulSync. Toute la configuration se fait dans l'interface web.</Overview>
+  <Category>MediaApp:Music Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8095]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/youtube-music.png</Icon>
+  <Config Name="Interface web" Target="8095" Default="8095" Mode="tcp" Description="Port de l'interface web" Type="Port" Display="always" Required="true" Mask="false">8095</Config>
+  <Config Name="Configuration" Target="/config" Default="/mnt/user/appdata/ytm-sync" Mode="rw" Description="Configuration, état, session YouTube et journaux" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ytm-sync</Config>
+  <Config Name="Fuseau horaire" Target="TZ" Default="Europe/Brussels" Mode="" Description="Fuseau horaire (planification et journaux)" Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Brussels</Config>
+</Container>

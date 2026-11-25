@@ -1,0 +1,54 @@
+{% extends "base.html" %}{% block body %}
+<div class="row" style="margin-bottom:16px">
+  <h1 style="margin:0">Tableau de bord</h1><div class="sp"></div>
+  <button class="btn" id="bDry" onclick="run(true)">Simulation</button>
+  <button class="btn p" id="bRun" onclick="run(false)">Synchroniser maintenant</button>
+  <button class="btn d" id="bStop" onclick="api('/api/stop',{})" disabled>Arrêter</button>
+</div>
+{% if not cfg.navidrome.url %}<div class="flash err">Navidrome n'est pas configuré : va dans <a href="/settings">Paramètres</a>.</div>{% endif %}
+{% if not cfg.playlists %}<div class="flash err">Aucune playlist surveillée : ajoute-en dans <a href="/playlists">Playlists</a>.</div>{% endif %}
+{% if cfg.sync.dry_run %}<div class="flash ok">Mode simulation actif par défaut (rien n'est envoyé ni modifié). Désactivable dans Paramètres.</div>{% endif %}
+<div class="grid">
+  <div class="card"><h2>État</h2><div class="kpi" id="state">—</div><div class="mut" id="prog"></div><div class="bar"><i id="pbar"></i></div></div>
+  <div class="card"><h2>Dernière synchro</h2><div class="kpi" id="lrKpi">—</div><div class="mut" id="lrTxt"></div></div>
+  <div class="card"><h2>Prochaine synchro</h2><div class="kpi" id="next" style="font-size:20px">—</div>
+    <div class="mut">{% if cfg.schedule.enabled %}{% if cfg.schedule.mode=='daily' %}Tous les jours à {{ cfg.schedule.daily_time }}{% else %}Toutes les {{ cfg.schedule.interval_hours }} h{% endif %}{% else %}Planification désactivée{% endif %}</div></div>
+</div>
+<div class="card"><div class="row"><h2 style="margin:0">Playlists</h2><div class="sp"></div><a href="/playlists" class="btn s">Gérer</a></div>
+<table><tr><th>YouTube</th><th>Navidrome</th><th>Présents</th><th>Manquants</th><th>Résultat</th><th>Dernière synchro</th></tr>
+{% for p in cfg.playlists %}{% set s = st.playlists.get(p.id, {}) %}
+<tr><td>{{ s.title or p.source }}{% if not p.enabled %} <span class="badge b-warn">désactivée</span>{% endif %}</td><td>{{ s.nd_name or p.nd_name or '—' }}</td>
+<td>{{ s.present if s.present is defined else '—' }}</td><td>{{ s.missing if s.missing is defined else '—' }}</td>
+<td>{% if s.error %}<span class="badge b-err">{{ s.error[:60] }}</span>{% else %}{{ s.nd_result or '—' }}{% endif %}</td><td>{{ s.last_sync|dtf }}</td></tr>
+{% else %}<tr><td colspan="6" class="mut">Aucune playlist.</td></tr>{% endfor %}</table></div>
+<div class="card"><div class="row"><h2 style="margin:0">Téléchargements SoulSync</h2><div class="sp"></div><button class="btn s" onclick="loadDl()">Actualiser</button></div>
+<div id="dl" class="mut">Chargement…</div></div>
+<div class="card"><div class="row"><h2 style="margin:0">Journal en direct</h2><div class="sp"></div><label class="check" style="margin:0"><input type="checkbox" id="autoscroll" checked> défilement auto</label></div>
+<div class="log" id="log"></div></div>
+<div class="card"><h2>Historique</h2><table><tr><th>Début</th><th>Déclencheur</th><th>Mode</th><th>Titres</th><th>Présents</th><th>Manquants</th><th>Envoyés</th><th>Statut</th></tr>
+{% for h in st.history[:15] %}<tr><td>{{ h.start|dtf }}</td><td>{{ h.trigger }}</td><td>{{ 'simulation' if h.dry else 'réel' }}</td><td>{{ h.total or 0 }}</td><td>{{ h.present or 0 }}</td><td>{{ h.missing or 0 }}</td><td>{{ h.sent or 0 }}</td>
+<td><span class="badge {{ 'b-ok' if h.status=='ok' else 'b-err' }}">{{ h.status }}</span> <span class="mut">{{ (h.message or '')[:80] }}</span></td></tr>
+{% else %}<tr><td colspan="8" class="mut">Aucune exécution.</td></tr>{% endfor %}</table></div>
+{% endblock %}
+{% block js %}<script>
+let since=0, wasRunning=null;
+async function run(dry){const r=await api('/api/run',{dry});if(!r.ok)alert(r.error)}
+async function status(){const s=await api('/api/status');if(!s.version)return;
+  document.getElementById('state').innerHTML=s.running?'<span class="badge b-info">En cours</span>':'<span class="badge b-ok">Au repos</span>';
+  const p=s.progress||{};document.getElementById('prog').textContent=s.running&&p.n?`Playlist ${p.pl_i}/${p.pl_n} — ${p.playlist} — titre ${p.i}/${p.n}`:'';
+  document.getElementById('pbar').style.width=s.running&&p.n?(((p.pl_i-1)+p.i/p.n)/p.pl_n*100)+'%':'0';
+  ['bRun','bDry'].forEach(i=>document.getElementById(i).disabled=s.running);document.getElementById('bStop').disabled=!s.running;
+  const l=s.last_run||{};document.getElementById('lrKpi').innerHTML=l.start?`${l.present||0}<small> / ${l.total||0} présents</small>`:'—';
+  document.getElementById('lrTxt').textContent=l.start?`${fmt(l.start)} — ${l.status} — ${l.missing||0} manquants, ${l.sent||0} envoyés${l.dry?' (simulation)':''}`:'';
+  document.getElementById('next').textContent=s.next_run?fmt(s.next_run):'—';
+  if(wasRunning===true&&!s.running)setTimeout(()=>location.reload(),1500);wasRunning=s.running}
+async function logs(){const r=await api('/api/logs?since='+since);const box=document.getElementById('log');
+  (r.lines||[]).forEach(l=>{since=l.n;const d=document.createElement('div');d.textContent=l.t;
+    if(/!!|ERREUR|\?\?/.test(l.t))d.className='e';else if(/\+\+/.test(l.t))d.className='a';else if(/###|===/.test(l.t))d.className='h';box.appendChild(d)});
+  if(document.getElementById('autoscroll').checked)box.scrollTop=box.scrollHeight}
+async function loadDl(){const r=await api('/api/soulsync/downloads');const el=document.getElementById('dl');
+  if(!r.ok){el.textContent=r.msg;return}if(!r.downloads.length){el.textContent='Aucun téléchargement en cours.';return}
+  const cls={completed:'b-ok',failed:'b-err',downloading:'b-info'};
+  el.innerHTML='<table><tr><th>Artiste</th><th>Titre</th><th>Statut</th><th>Progression</th></tr>'+r.downloads.slice(0,50).map(d=>`<tr><td>${esc(d.artist_name)}</td><td>${esc(d.track_name)}</td><td><span class="badge ${cls[d.status]||'b-warn'}">${esc(d.status)}</span></td><td>${d.progress??''}%</td></tr>`).join('')+'</table>'}
+status();logs();loadDl();setInterval(status,2000);setInterval(logs,1500);setInterval(loadDl,30000);
+</script>{% endblock %}

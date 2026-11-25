@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>YTM Sync — Connexion</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}"></head>
+<body><div class="login">
+  <div class="brand"><i class="dot"></i>YTM Sync</div>
+  <div class="ver">Version {{ version }}</div>
+  {% with msgs = get_flashed_messages(with_categories=true) %}{% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}{% endwith %}
+  <form method="post" class="card">
+    {% if setup %}
+      <h2>Premier démarrage</h2>
+      <p class="mut">Choisis le mot de passe de l'interface.</p>
+      <label>Mot de passe</label><input type="password" name="password" autofocus required minlength="6">
+      <label>Confirmation</label><input type="password" name="password2" required minlength="6">
+      <p><button class="btn p" style="width:100%;justify-content:center">Créer</button></p>
+    {% else %}
+      <label>Mot de passe</label><input type="password" name="password" autofocus required>
+      <p><button class="btn p" style="width:100%;justify-content:center">Se connecter</button></p>
+    {% endif %}
+  </form>
+</div></body></html>
