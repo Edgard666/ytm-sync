@@ -18,7 +18,7 @@
 <table><tr><th>YouTube</th><th>Navidrome</th><th>Présents</th><th>Manquants</th><th>Résultat</th><th>Dernière synchro</th></tr>
 {% for p in cfg.playlists %}{% set s = st.playlists.get(p.id, {}) %}
 <tr><td>{{ s.title or p.source }}{% if not p.enabled %} <span class="badge b-warn">désactivée</span>{% endif %}</td><td>{{ s.nd_name or p.nd_name or '—' }}</td>
-<td>{{ s.present if s.present is defined else '—' }}</td><td>{{ s.missing if s.missing is defined else '—' }}</td>
+<td>{{ s.present if s.present is defined else '—' }}</td><td>{{ s.missing if s.missing is defined else '—' }}{% if s.ignored %} <span class="mut">(+{{ s.ignored }} ignorés)</span>{% endif %}</td>
 <td>{% if s.error %}<span class="badge b-err">{{ s.error[:60] }}</span>{% else %}{{ s.nd_result or '—' }}{% endif %}</td><td>{{ s.last_sync|dtf }}</td></tr>
 {% else %}<tr><td colspan="6" class="mut">Aucune playlist.</td></tr>{% endfor %}</table></div>
 <div class="card"><div class="row"><h2 style="margin:0">Téléchargements SoulSync</h2><div class="sp"></div><button class="btn s" onclick="loadDl()">Actualiser</button></div>

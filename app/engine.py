@@ -323,9 +323,10 @@ class SyncRunner:
         old = self.store.state.get("tracks", {})
         tracks = {} if only is None else copy.deepcopy(old)
         nd_lists = nd.owned_playlists() if npl["enabled"] else {}
-        st = dict(total=0, present=0, missing=0, sent=0, pending=0, errors=0, warns=0)
+        st = dict(total=0, present=0, missing=0, sent=0, pending=0, errors=0, warns=0, ignored=0)
         run_id = secrets.token_hex(4)
         overrides = cfg.get("overrides", {})  # corrections manuelles par videoId
+        ignored = cfg.get("ignored", {})      # titres a ignorer (ni recherche, ni SoulSync, ni playlist)
         req_keys = {}  # song_key -> derniere demande SoulSync (toutes videos confondues)
         for o in old.values():
             if o.get("requested_at") and o.get("key"):
@@ -347,7 +348,7 @@ class SyncRunner:
             items = pl.get("tracks", []) or []
             nd_name = p.get("nd_name") or npl["prefix"] + (pl.get("title") or pid)
             self.log(f"### {pl.get('title')} ({len(items)} titres) → {nd_name}")
-            song_ids, pst = [], dict(total=0, present=0, missing=0)
+            song_ids, pst = [], dict(total=0, present=0, missing=0, ignored=0)
             for ti, tr in enumerate(items, 1):
                 if self.cancel:
                     break
@@ -364,6 +365,15 @@ class SyncRunner:
                 tracks[vid] = e
                 pst["total"] += 1
                 label = f"{artist} - {e['title']}"
+                if vid in ignored:
+                    if e.get("_run") != run_id:
+                        e["_run"] = run_id
+                        st["ignored"] += 1
+                    e.update(status="ignored", nd_id=None, nd_artist=None, nd_title=None, nd_album=None,
+                             nd_duration=None, nd_path=None, warn=None, error=None,
+                             requested_at=(old.get(vid) or {}).get("requested_at"))
+                    pst["ignored"] += 1
+                    continue
                 if e.get("_run") != run_id:  # pas encore evalue pendant ce passage
                     e["_run"] = run_id
                     e["requested_at"] = (old.get(vid) or {}).get("requested_at")
@@ -462,7 +472,8 @@ class SyncRunner:
             code = ss.process()
             self.log(f"Traitement wishlist SoulSync : HTTP {code}" + (" (déjà en cours)" if code == 409 else ""))
         self.log(f"Résumé : {st['total']} titres | {st['present']} présents | {st['missing']} manquants | "
-                 f"{st['sent']} envoyés | {st['pending']} en attente | {st['warns']} durées à vérifier | {st['errors']} erreurs")
+                 f"{st['sent']} envoyés | {st['pending']} en attente | {st['ignored']} ignorés | "
+                 f"{st['warns']} durées à vérifier | {st['errors']} erreurs")
         return dict(dry=DRY, **st)
 
     def _pl_state(self, pid, data):

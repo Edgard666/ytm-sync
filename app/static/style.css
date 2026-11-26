@@ -41,6 +41,7 @@ th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase}
 .b-ok{background:rgba(52,195,143,.15);color:var(--ok)}
 .b-warn{background:rgba(241,180,76,.15);color:var(--warn)}
 .b-err{background:rgba(244,106,106,.15);color:var(--err)}
+.b-ign{background:rgba(139,149,167,.15);color:var(--mut)}
 .b-info{background:rgba(80,165,241,.15);color:var(--info)}
 .flash{padding:10px 14px;border-radius:8px;margin-bottom:14px}
 .flash.ok{background:rgba(52,195,143,.12);border:1px solid rgba(52,195,143,.4)}

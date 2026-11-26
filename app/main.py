@@ -227,7 +227,8 @@ def export_tracks():
     want = request.args.get("status", "all")
     names = {p["id"]: (store.state["playlists"].get(p["id"], {}).get("title") or pl_id(p["source"]))
              for p in store.cfg["playlists"]}
-    lab = {"present": "Présent", "missing": "Manquant", "requested": "Demandé", "error": "Erreur"}
+    lab = {"present": "Présent", "missing": "Manquant", "requested": "Demandé", "error": "Erreur",
+           "ignored": "Ignoré"}
 
     def mmss(sec):
         return f"{int(sec) // 60}:{int(sec) % 60:02d}" if sec else ""
@@ -412,6 +413,26 @@ def api_reset(vid):
     return jsonify(ok=True)
 
 
+@app.route("/api/tracks/<vid>/ignore", methods=["POST"])
+@login_required
+def api_ignore(vid):
+    on = (request.get_json(silent=True) or {}).get("ignore", True)
+    with store.lock:
+        ign = store.cfg.setdefault("ignored", {})
+        e = store.state["tracks"].get(vid)
+        if on:
+            ign[vid] = {"artist": (e or {}).get("artist"), "title": (e or {}).get("title"), "at": time.time()}
+            if e:
+                e.update(status="ignored", nd_id=None, warn=None, error=None)
+        else:
+            ign.pop(vid, None)
+            if e:
+                e.update(status="missing")  # reevalue a la prochaine synchro
+        store.save_cfg()
+        store.save_state()
+    return jsonify(ok=True)
+
+
 @app.route("/api/tracks/rerequest", methods=["POST"])
 @login_required
 def api_rerequest():
@@ -419,7 +440,7 @@ def api_rerequest():
     ids = j.get("ids")
     with store.lock:
         for vid, e in store.state["tracks"].items():
-            if (ids is None or vid in ids) and e.get("status") != "present":
+            if (ids is None or vid in ids) and e.get("status") not in ("present", "ignored"):
                 e["requested_at"] = None
                 if e.get("status") == "requested":
                     e["status"] = "missing"

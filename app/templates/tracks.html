@@ -2,17 +2,18 @@
 <div class="row" style="margin-bottom:12px"><h1 style="margin:0">Titres</h1><div class="sp"></div>
 <a class="btn" href="/export/tracks.csv?status=missing">Exporter les manquants</a>
 <a class="btn" href="/export/tracks.csv?status=present">Exporter les présents</a>
+<a class="btn" href="/export/tracks.csv?status=ignored">Exporter les ignorés</a>
 <a class="btn" href="/export/tracks.csv?status=all">Tout exporter</a>
 <button class="btn" onclick="rereqAll()">Tout redemander au prochain passage</button></div>
 <div class="card">
 <div class="row"><div class="tabs" id="tabs">
   <button data-f="all" class="on">Tous</button><button data-f="missing">Manquants</button><button data-f="requested">Demandés</button>
-  <button data-f="error">Erreurs</button><button data-f="warn">Durée à vérifier</button><button data-f="manual">Corrigés</button><button data-f="present">Présents</button></div>
+  <button data-f="error">Erreurs</button><button data-f="warn">Durée à vérifier</button><button data-f="manual">Corrigés</button><button data-f="present">Présents</button><button data-f="ignored">Ignorés</button></div>
 <div class="sp"></div><input type="text" id="q" placeholder="Rechercher artiste / titre…" style="max-width:280px"></div>
-<div class="help"><b>Lier…</b> : associer toi-même un morceau Navidrome (le titre devient présent, jamais demandé à SoulSync). <b>Délier</b> : refuser une correspondance fausse. Tes corrections sont gardées et appliquées aux playlists Navidrome dès la prochaine synchro.</div>
+<div class="help"><b>Lier…</b> : associer toi-même un morceau Navidrome (le titre devient présent, jamais demandé à SoulSync). <b>Délier</b> : refuser une correspondance fausse. <b>Ignorer</b> : ne jamais importer ce titre (ni recherche, ni SoulSync, ni playlist Navidrome). Tes corrections sont gardées et appliquées aux playlists Navidrome dès la prochaine synchro.</div>
 <p class="mut" id="cnt"></p>
 <table id="t"><tr><th>Artiste</th><th>Titre</th><th>Album</th><th>Trouvé dans Navidrome</th><th>Playlists</th><th>Statut</th><th>Demandé le</th><th></th></tr>
-{% set lab = {'present':('Présent','b-ok'),'missing':('Manquant','b-warn'),'requested':('Demandé','b-info'),'error':('Erreur','b-err')} %}
+{% set lab = {'present':('Présent','b-ok'),'missing':('Manquant','b-warn'),'requested':('Demandé','b-info'),'error':('Erreur','b-err'),'ignored':('Ignoré','b-ign')} %}
 {% for e in rows %}{% set l = lab.get(e.status, ('?','b-warn')) %}
 <tr data-s="{{ e.status }}" data-w="{{ 1 if e.warn else 0 }}" data-m="{{ 1 if (e.manual or e.blocked) else 0 }}" data-q="{{ (e.artist ~ ' ' ~ e.title)|lower }}">
 <td>{{ e.artist }}</td><td><a href="https://music.youtube.com/watch?v={{ e.videoId }}" target="_blank" rel="noopener">{{ e.title }}</a></td><td class="mut">{{ e.album or '' }}</td>
@@ -21,10 +22,13 @@
 <td><span class="badge {{ l[1] }}" {% if e.error %}title="{{ e.error }}"{% endif %}>{{ l[0] }}</span>{% if e.warn %} <span class="badge b-warn" title="{{ e.warn }}">⚠ durée</span>{% endif %}{% if e.manual %} <span class="badge b-info">lien manuel</span>{% endif %}{% if e.blocked %} <span class="badge b-err" title="Correspondances refusées par toi">{{ e.blocked }} refusé(s)</span>{% endif %}</td>
 <td class="mut">{{ e.requested_at|dtf }}</td>
 <td style="white-space:nowrap">
+  {% if e.status == 'ignored' %}<button class="btn s" onclick="ign('{{ e.videoId }}',false)">Ne plus ignorer</button>{% else %}
+  <button class="btn s" onclick="ign('{{ e.videoId }}',true)" title="Ne pas importer ce titre dans Navidrome">Ignorer</button>
   <button class="btn s" onclick='openLink({{ e.videoId|tojson }}, {{ ((e.artist or "") ~ " " ~ (e.title or ""))|tojson }})'>Lier…</button>
   {% if e.status == 'present' %}<button class="btn s d" onclick="act('{{ e.videoId }}','unlink','Ce lien est faux ? Il sera refusé et la recherche continuera.')">Délier</button>{% endif %}
   {% if e.manual or e.blocked %}<button class="btn s" onclick="act('{{ e.videoId }}','reset','Effacer tes corrections pour ce titre ?')">Réinitialiser</button>{% endif %}
   {% if e.status != 'present' %}<button class="btn s" onclick="rereq(['{{ e.videoId }}'])">Redemander</button>{% endif %}
+  {% endif %}
 </td></tr>
 {% endfor %}</table>
 {% if not rows %}<p class="mut">Aucun titre : lance une première synchro (ou une simulation).</p>{% endif %}
@@ -57,6 +61,7 @@ async function ndSearch(){const el=document.getElementById('mRes');el.textConten
   if(!r.songs.length){el.innerHTML='<p class="mut">Aucun résultat. Essaie avec seulement le titre ou l\'artiste.</p>';return}
   el.innerHTML='<table><tr><th>Artiste</th><th>Titre</th><th>Album</th><th>Durée</th><th></th></tr>'+r.songs.map(x=>`<tr><td>${esc(x.artist)}</td><td title="${esc(x.path)}">${esc(x.title)}</td><td class="mut">${esc(x.album)}</td><td class="mut">${mmss(x.duration)}</td><td><button class="btn s p" onclick="doLink('${esc(x.id)}')">Lier</button></td></tr>`).join('')+'</table>'}
 async function doLink(ndId){const r=await api('/api/tracks/'+curVid+'/link',{nd_id:ndId});if(!r.ok){alert(r.msg);return}location.reload()}
+async function ign(vid,on){await api('/api/tracks/'+vid+'/ignore',{ignore:on});location.reload()}
 async function act(vid,what,msg){if(!confirm(msg))return;await api('/api/tracks/'+vid+'/'+what,{});location.reload()}
 async function rereq(ids){await api('/api/tracks/rerequest',{ids});location.reload()}
 async function rereqAll(){if(confirm('Tous les titres non présents seront renvoyés à SoulSync au prochain passage. Continuer ?')){await api('/api/tracks/rerequest',{});location.reload()}}
