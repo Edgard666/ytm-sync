@@ -1,0 +1,101 @@
+# Construit, teste et publie l'image sur ghcr.io. Unraid voit alors « update ready ».
+#  - à chaque push sur main (nouvelle version du code) ;
+#  - chaque lundi : nouvelle version de JOAL, mise à jour de Java ou nouveaux profils .client ;
+#  - à la demande (onglet Actions > Image Docker > Run workflow).
+# Rien n'est publié si un test échoue (GitHub envoie alors un e-mail), ni si l'image
+# publiée a déjà exactement les mêmes entrées (pas de fausse mise à jour dans Unraid).
+name: Image Docker
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Publier même si rien n'a changé
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: image
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/joal-smart-controller
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Connexion à ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Dernières versions (JOAL, Java, profils .client)
+        id: inputs
+        run: python3 ci/resolve_inputs.py >> "$GITHUB_OUTPUT"
+
+      - name: Image déjà publiée avec les mêmes entrées ?
+        id: published
+        run: |
+          IMAGE="${IMAGE,,}"
+          current=""
+          if docker pull --quiet "$IMAGE:latest" >/dev/null 2>&1; then
+            current=$(docker inspect --format '{{ index .Config.Labels "app.joal-smart-controller.inputs" }}' "$IMAGE:latest")
+          fi
+          echo "Publiée : ${current:-aucune} · nouvelle : ${{ steps.inputs.outputs.inputs }}"
+          if [ "$current" = "${{ steps.inputs.outputs.inputs }}" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "### Rien à publier : l'image en ligne a déjà JOAL ${{ steps.inputs.outputs.joal_version }} et les mêmes entrées." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tests unitaires
+        if: steps.published.outputs.changed == 'true'
+        run: python3 -m unittest discover -s tests -p "test_*.py"
+
+      - name: Construction
+        if: steps.published.outputs.changed == 'true'
+        run: |
+          docker build \
+            --build-arg JOAL_IMAGE="${{ steps.inputs.outputs.joal_image }}" \
+            --build-arg JDK_IMAGE="${{ steps.inputs.outputs.jdk_image }}" \
+            --build-arg JRE_IMAGE="${{ steps.inputs.outputs.jre_image }}" \
+            --build-arg JOAL_VERSION="${{ steps.inputs.outputs.joal_version }}" \
+            --build-arg BUILD_INPUTS="${{ steps.inputs.outputs.inputs }}" \
+            -t joal-smart-controller:candidate .
+
+      - name: Essai de bout en bout (JOAL + télémétrie + contrôleur)
+        if: steps.published.outputs.changed == 'true'
+        run: python3 ci/smoke_image.py --image joal-smart-controller:candidate
+
+      - name: Publication
+        if: steps.published.outputs.changed == 'true' && github.ref == 'refs/heads/main'
+        run: |
+          IMAGE="${IMAGE,,}"
+          version="${{ steps.inputs.outputs.app_version }}-joal${{ steps.inputs.outputs.joal_version }}"
+          for tag in latest "$version"; do
+            docker tag joal-smart-controller:candidate "$IMAGE:$tag"
+            docker push --quiet "$IMAGE:$tag"
+          done
+          {
+            echo "### Publiée : \`$IMAGE:latest\` ($version)"
+            echo "- JOAL ${{ steps.inputs.outputs.joal_version }}, ${{ steps.inputs.outputs.profiles }} profils .client"
+            echo "- Java : \`${{ steps.inputs.outputs.jre_image }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

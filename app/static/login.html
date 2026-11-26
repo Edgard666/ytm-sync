@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Connexion · JOAL Smart Controller · v__APP_VERSION__</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/login.css">
+  <script src="/assets/login.js" defer></script>
+</head>
+<body>
+  <main class="login-shell">
+    <section class="login-brand" aria-label="JOAL Smart Controller">
+      <div class="logo"><span>J</span><div><strong>JOAL <em>SMART</em></strong><small>CONTROLLER · v__APP_VERSION__</small></div></div>
+      <div class="brand-info"><div class="eyebrow">TABLEAU DE BORD UNRAID · v__APP_VERSION__</div>
+        <h1>Vos torrents.<br><span>Sous contrôle.</span></h1>
+        <p>Un espace unique pour consulter les règles, les sessions, l'état des trackers et l'historique des décisions.</p>
+        <div class="brand-stats"><span><i aria-hidden="true"></i> Surveillance des trackers</span><span><i aria-hidden="true"></i> Priorité à qBittorrent</span></div>
+      </div>
+      <div class="brand-footer">v__APP_VERSION__ · Accès d'administration · Réseau de confiance recommandé</div>
+    </section>
+    <section class="login-side" aria-labelledby="login-title">
+      <div class="login-card">
+        <div class="login-emblem" aria-hidden="true">↗</div>
+        <p class="eyebrow">ACCÈS PRIVÉ</p>
+        <h2 id="login-title">Connexion</h2>
+        <p class="subtitle">Identifiez-vous pour accéder au tableau de bord.</p>
+        <form id="login-form" autocomplete="on">
+          <label for="login-username">Utilisateur</label>
+          <input id="login-username" type="text" name="username" autocomplete="username" value="admin" required maxlength="80" autofocus>
+          <label for="login-password">Mot de passe</label>
+          <div class="password-field"><input id="login-password" type="password" name="password" autocomplete="current-password" required maxlength="1024" placeholder="Votre mot de passe administrateur"><button type="button" id="toggle-password" aria-label="Afficher le mot de passe" aria-pressed="false">Afficher</button></div>
+          <div id="login-error" class="login-error" role="alert" aria-live="polite" hidden></div>
+          <button id="login-submit" class="submit" type="submit">Se connecter <span aria-hidden="true">→</span></button>
+        </form>
+        <div class="login-note"><span aria-hidden="true">◇</span> Votre mot de passe reste dans le formulaire et n'est pas enregistré dans le navigateur par l'application.</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,43 @@
+{
+  "dryRun": true,
+  "qbitFilterMode": "tag",
+  "qbitCategory": "",
+  "qbitTag": "joal",
+  "refreshSeconds": 180,
+  "maxCandidates": 10,
+  "rules": [
+    {
+      "id": "tracker-exemple",
+      "enabled": false,
+      "trackerDomains": [
+        "tracker.exemple.org"
+      ],
+      "minLeechers": 3,
+      "minUploadRate": 30,
+      "maxUploadRate": 160,
+      "simultaneousSeed": 10,
+      "client": "qbittorrent-5.3.0.client",
+      "targetRatio": 0.0
+    }
+  ],
+  "completedTag": "JoalCompleted",
+  "guardSeconds": 5,
+  "cleanup": {
+    "enabled": false,
+    "afterDays": 3,
+    "deleteData": false,
+    "scrapeEveryMinutes": 60
+  },
+  "swarm": {
+    "enabled": true,
+    "intervalMinutes": 15,
+    "maxAgeMinutes": 45
+  },
+  "handoff": {
+    "enabled": false,
+    "cooldownMinutes": 60,
+    "confirmations": 2,
+    "fastTrackMargin": 5
+  },
+  "torrentRuleOverrides": {}
+}

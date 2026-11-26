@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container version="2">
+  <Name>joal-smart-controller</Name>
+  <Repository>joal-smart-controller:local</Repository>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <WebUI>http://[IP]:[PORT:8788]/</WebUI>
+  <Overview>Contrôleur compagnon JOAL : import JOAL uniquement dans /data/torrents, tableau de bord graphique, règles par tracker, historique des sessions, notifications Web, graphiques des leechers, sauvegardes persistantes, journal des décisions, page de connexion et nettoyage optionnel. Projet local expérimental. Par défaut, simulation sans annonces.</Overview>
+  <Project>https://github.com/anthonyraymond/joal</Project>
+  <ExtraParams>--security-opt=no-new-privileges:true --cap-drop=ALL --cap-add=CHOWN --cap-add=FOWNER --cap-add=DAC_READ_SEARCH --cap-add=SETUID --cap-add=SETGID --init --stop-timeout 120</ExtraParams>
+  <Config Name="Port WebUI" Target="8788" Default="8788" Mode="tcp" Description="Port HTTP de l'interface sur l'hôte Unraid." Type="Port" Display="always" Required="true" Mask="false" />
+  <Config Name="Données persistantes" Target="/data" Default="/mnt/user/appdata/joal-smart-controller/data" Mode="rw" Description="Fichiers de configuration, profils et état." Type="Path" Display="always" Required="true" Mask="false" />
+  <Config Name="URL qBittorrent" Target="QBIT_URL" Default="" Description="Optionnelle en mode JOAL uniquement. URL qBittorrent WebUI, accessible depuis le réseau choisi (ex. http://192.168.1.10:8080)." Type="Variable" Display="always" Required="false" Mask="false" />
+  <Config Name="Utilisateur qBittorrent" Target="QBIT_USERNAME" Default="admin" Description="Nom d'utilisateur de qBittorrent." Type="Variable" Display="always" Required="false" Mask="false" />
+  <Config Name="Mot de passe qBittorrent" Target="QBIT_PASSWORD" Default="" Description="Mot de passe qBittorrent (facultatif si le reseau Docker est exempte d'authentification)." Type="Variable" Display="always" Required="false" Mask="true" />
+  <Config Name="Mot de passe WebUI" Target="ADMIN_PASSWORD" Default="" Description="Mot de passe du contrôleur (utilisateur : admin)." Type="Variable" Display="always" Required="true" Mask="true" />
+  <Config Name="Cookie HTTPS sécurisé" Target="COOKIE_SECURE" Default="0" Description="Mettre 1 seulement si l'interface est accessible en HTTPS (via reverse proxy TLS) ; laisser 0 en HTTP LAN." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="Propriétaire des .torrent (UID)" Target="TORRENT_UID" Default="99" Description="Unraid nobody (UID 99), pour les seuls fichiers .torrent." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="Groupe des .torrent (GID)" Target="TORRENT_GID" Default="100" Description="Unraid users (GID 100)." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="Mode fichiers .torrent" Target="TORRENT_FILE_MODE" Default="0660" Description="rw-rw---- : propriétaire et groupe users uniquement (les .torrent contiennent des passkeys)." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="Mode dossier torrents" Target="TORRENT_DIR_MODE" Default="0770" Description="rwxrwx--- sur /data/torrents uniquement." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="UID du processus" Target="PUID" Default="99" Description="Utilisateur d'exécution (Unraid nobody = 99). /data lui est attribué au démarrage." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="GID du processus" Target="PGID" Default="100" Description="Groupe d'exécution (Unraid users = 100)." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="Reverse proxy de confiance" Target="TRUSTED_PROXIES" Default="" Description="IP du reverse proxy autorisé à fournir X-Forwarded-For (limitation des tentatives par vraie IP). Vide sans proxy." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="Dossier surveillé" Target="IMPORT_WATCH" Default="1" Description="1 : les .torrent déposés dans data/import/ sont importés automatiquement (0 pour désactiver)." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="Taille max d'un journal (Mo)" Target="LOG_MAX_MB" Default="5" Description="Rotation de runtime/*/joal.log au-delà de cette taille." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="Archives de journaux" Target="LOG_BACKUPS" Default="3" Description="Nombre de journaux archivés conservés (joal.log.1 … .N)." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="Mémoire JVM JOAL" Target="JOAL_XMX" Default="128m" Description="Heap minimale de chaque processus JOAL (une par règle active), augmentée automatiquement selon la taille des .torrent (jusqu’à 1536m). Ex. 128m, 192m." Type="Variable" Display="advanced" Required="false" Mask="false" />
+  <Config Name="Port interne" Target="PORT" Default="8788" Description="Port interne fixe : laisser 8788." Type="Variable" Display="advanced" Required="true" Mask="false" />
+</Container>
