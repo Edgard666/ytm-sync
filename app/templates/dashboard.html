@@ -46,9 +46,11 @@ async function logs(){const r=await api('/api/logs?since='+since);const box=docu
   (r.lines||[]).forEach(l=>{since=l.n;const d=document.createElement('div');d.textContent=l.t;
     if(/!!|ERREUR|\?\?/.test(l.t))d.className='e';else if(/\+\+/.test(l.t))d.className='a';else if(/###|===/.test(l.t))d.className='h';box.appendChild(d)});
   if(document.getElementById('autoscroll').checked)box.scrollTop=box.scrollHeight}
-async function loadDl(){const r=await api('/api/soulsync/downloads');const el=document.getElementById('dl');
+async function loadDl(auto){const el=document.getElementById('dl');
+  if(auto&&[...el.querySelectorAll('.th-box input')].some(i=>i.value))return; // ne pas effacer un filtre en cours
+  const r=await api('/api/soulsync/downloads');
   if(!r.ok){el.textContent=r.msg;return}if(!r.downloads.length){el.textContent='Aucun téléchargement en cours.';return}
   const cls={completed:'b-ok',failed:'b-err',downloading:'b-info'};
   el.innerHTML='<table><tr><th>Artiste</th><th>Titre</th><th>Statut</th><th>Progression</th></tr>'+r.downloads.slice(0,50).map(d=>`<tr><td>${esc(d.artist_name)}</td><td>${esc(d.track_name)}</td><td><span class="badge ${cls[d.status]||'b-warn'}">${esc(d.status)}</span></td><td>${d.progress??''}%</td></tr>`).join('')+'</table>'}
-status();logs();loadDl();setInterval(status,2000);setInterval(logs,1500);setInterval(loadDl,30000);
+status();logs();loadDl();setInterval(status,2000);setInterval(logs,1500);setInterval(()=>loadDl(true),30000);
 </script>{% endblock %}

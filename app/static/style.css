@@ -61,3 +61,17 @@ th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase}
 code{background:var(--panel2);padding:1px 6px;border-radius:4px;font-size:12px}
 .test-res{font-size:13px;margin-left:6px}
 @media(max-width:700px){header{gap:10px;padding:0 12px}.brand span{display:none}main{padding:14px}}
+
+/* tri / filtre des tableaux */
+.cf-hide{display:none!important}
+th.sortable{cursor:pointer;user-select:none;vertical-align:top}
+th.sortable:hover{color:var(--txt)}
+.th-top{display:flex;align-items:center;gap:6px}
+th.sort-asc .th-top span::after{content:" ▲";color:var(--acc2)}
+th.sort-desc .th-top span::after{content:" ▼";color:var(--acc2)}
+.th-filter{background:none;border:1px solid transparent;color:var(--mut);cursor:pointer;border-radius:5px;padding:0 6px;font-size:17px;line-height:20px;font-weight:700}
+.th-filter:hover{border-color:var(--line);color:var(--txt)}
+.th-filter.on{color:#fff;background:var(--acc);border-color:var(--acc)}
+.th-box{gap:4px;margin-top:6px}
+.th-box input{padding:4px 7px;font-size:12px;text-transform:none;font-weight:400;min-width:90px}
+.th-clear{background:var(--panel2);border:1px solid var(--line);color:var(--mut);border-radius:6px;cursor:pointer;padding:0 7px}

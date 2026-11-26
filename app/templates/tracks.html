@@ -44,10 +44,11 @@
 {% block js %}<script>
 let f='all';const rows=[...document.querySelectorAll('#t tr[data-s]')];
 function apply(){const q=document.getElementById('q').value.toLowerCase();let n=0;
-  rows.forEach(r=>{const ok=(f==='all'||r.dataset.s===f||(f==='warn'&&r.dataset.w==='1')||(f==='manual'&&r.dataset.m==='1'))&&(!q||r.dataset.q.includes(q));r.style.display=ok?'':'none';if(ok)n++});
+  rows.forEach(r=>{const ok=(f==='all'||r.dataset.s===f||(f==='warn'&&r.dataset.w==='1')||(f==='manual'&&r.dataset.m==='1'))&&(!q||r.dataset.q.includes(q));r.style.display=ok?'':'none';if(ok&&!r.classList.contains('cf-hide'))n++});
   document.getElementById('cnt').textContent=n+' titre(s)'}
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');f=b.dataset.f;apply()});
 document.getElementById('q').oninput=apply;apply();
+document.addEventListener('tablefiltered',apply);
 let curVid=null;
 function mmss(s){return s?Math.floor(s/60)+':'+String(s%60).padStart(2,'0'):''}
 function openLink(vid,label){curVid=vid;document.getElementById('mTrack').textContent='YouTube : '+label;

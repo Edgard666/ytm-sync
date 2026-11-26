@@ -23,5 +23,6 @@ async function api(url, body){const r=await fetch(url,{method:body===undefined?'
 function fmt(ts){if(!ts)return'—';const d=new Date(ts*1000);return d.toLocaleDateString('fr-BE')+' '+d.toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})}
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 </script>
+<script src="{{ url_for('static', filename='tables.js') }}?v={{ version }}"></script>
 {% block js %}{% endblock %}
 </body></html>
