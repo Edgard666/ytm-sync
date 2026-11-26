@@ -1,3 +1,6 @@
 __pycache__/
-config/
 *.pyc
+# Données et secrets de l'installation : ne doivent jamais partir sur GitHub.
+data/
+.env
+*.zip

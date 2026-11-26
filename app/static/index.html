@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>JOAL Smart Controller · Unraid · v__APP_VERSION__</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/torrent_table.js" defer></script>
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-icon" aria-hidden="true">J</span><div><strong>JOAL<span class="brand-muted"> SMART</span></strong><small>Controller · v__APP_VERSION__</small></div></div>
+      <nav class="nav workspace-nav" aria-label="Navigation principale">
+<div><div class="side-section">Bibliothèque</div><button type="button" class="nav-link active" data-view="dashboard"><span aria-hidden="true">▦</span> Accueil</button><button type="button" class="nav-link" data-view="torrents"><span aria-hidden="true">≡</span> Torrents suivis</button><button type="button" class="nav-link" data-view="import"><span aria-hidden="true">⇧</span> Importer un torrent</button></div><details><summary>Suivi et règles</summary><button type="button" class="nav-link" data-view="rules"><span aria-hidden="true">☷</span> Règles &amp; trackers</button><button type="button" class="nav-link" data-view="swarm"><span aria-hidden="true">◉</span> Relevés autonomes</button><button type="button" class="nav-link" data-view="cleanup"><span aria-hidden="true">⌛</span> Nettoyage &amp; historique</button><button type="button" class="nav-link" data-view="diagnostics"><span aria-hidden="true">◷</span> Diagnostics &amp; journal</button></details><details><summary>Administration</summary><button type="button" class="nav-link" data-view="health"><span aria-hidden="true">♥</span> Santé</button><button type="button" class="nav-link" data-view="settings"><span aria-hidden="true">⚙</span> Paramètres</button><button type="button" class="nav-link" data-view="backup"><span aria-hidden="true">⇩</span> Sauvegardes</button><button type="button" class="nav-link" data-view="json"><span aria-hidden="true">{ }</span> JSON avancé</button></details></nav>
+      <div class="sidebar-logout"><button type="button" class="logout-button" id="logout-btn" title="Fermer la session d'administration">⎋ Déconnexion</button></div>
+      <div class="sidebar-bottom"><span class="pulse" id="side-dot"></span><div><strong id="side-connection">Connexion à vérifier</strong><small id="side-last">Aucune synchronisation</small></div></div>
+    </aside>
+    <main class="content"><label class="view-picker">Aller à <select id="view-picker"><optgroup label="Bibliothèque"><option value="dashboard">Vue d’ensemble</option><option value="torrents">Torrents suivis</option><option value="import">Importer un torrent</option></optgroup><optgroup label="Suivi et règles"><option value="rules">Règles &amp; trackers</option><option value="swarm">Relevés autonomes</option><option value="cleanup">Nettoyage &amp; historique</option><option value="diagnostics">Diagnostics &amp; journal</option></optgroup><optgroup label="Administration"><option value="health">Santé</option><option value="settings">Paramètres</option><option value="backup">Sauvegardes</option><option value="json">JSON avancé</option></optgroup></select></label>
+      <header class="topbar"><div><span class="eyebrow">UNRAID / QBITTORRENT · v__APP_VERSION__</span><h1 id="page-title">Vue d’ensemble</h1><p id="page-subtitle" class="muted">État des règles et torrents inspectés.</p></div><div class="top-actions"><span class="badge badge-neutral" id="mode-badge">Chargement</span><button type="button" id="notifications-toggle" class="btn btn-outline" aria-label="Afficher les notifications">Alertes <span id="notifications-count" class="notification-count" hidden>0</span></button><button type="button" id="refresh-btn" class="btn btn-outline">↻ Actualiser</button></div></header>
+      <div class="alert hidden" id="alert" role="alert"></div>
+      <section class="notification-panel hidden" id="notification-panel" aria-label="Notifications récentes">
+        <div class="section-header"><div><h2>Notifications de surveillance</h2><p>Incidents et rétablissements, sans envoi vers un service externe.</p></div><div class="diagnostic-actions"><button type="button" id="notification-read" class="btn btn-outline">Tout marquer comme lu</button><button type="button" id="notification-close" class="btn btn-outline">Fermer</button></div></div>
+        <div id="notification-items" class="notification-items" aria-live="polite"></div>
+      </section>
+      <section class="view" id="view-dashboard">
+        <div class="simulation-card"><div><small id="pause-state">Chargement…</small><h2>Simulations JOAL</h2><span class="kpi-label">Upload simulé JOAL · total</span> <strong id="kpi-joal-upload">—</strong></div><button id="pause-all" class="btn btn-outline" type="button" disabled>Mettre tout JOAL en pause</button></div>
+        <figure class="upload-chart"><figcaption>Historique du débit simulé <small id="chart-period">En direct</small></figcaption>
+          <div class="chart-controls">
+            <button type="button" class="btn btn-compact btn-outline" id="chart-prev" aria-label="Heure précédente">← 1 h</button>
+            <label>Fin de période <input type="datetime-local" id="chart-date"></label>
+            <button type="button" class="btn btn-compact btn-outline" id="chart-next" aria-label="Heure suivante" disabled>1 h →</button>
+            <button type="button" class="btn btn-compact btn-primary" id="chart-live" aria-pressed="true">● Direct</button>
+          </div>
+          <div class="chart-scale"><span id="chart-max">—</span><span>0 o/s</span></div>
+          <svg viewBox="0 0 720 80" preserveAspectRatio="none" role="img" aria-label="Débit simulé global sur la période affichée"><path id="upload-line" vector-effect="non-scaling-stroke"></path></svg>
+          <div class="chart-times"><span id="chart-start">—</span><span id="chart-middle">—</span><span id="chart-end">—</span></div></figure>
+        <details class="section-fold"><summary>Indicateurs et état des règles</summary><div class="kpis">
+          <div class="kpi"><span class="kpi-label">Torrents qBittorrent suivis</span><strong id="kpi-tagged">—</strong><small>Tous les états qBittorrent</small></div>
+          <div class="kpi"><span class="kpi-label">Sélections</span><strong id="kpi-selected">—</strong><small>Réparties entre les règles</small></div>
+          <div class="kpi"><span class="kpi-label">Éligibles</span><strong id="kpi-eligible">—</strong><small>Respectent les conditions</small></div>
+          <div class="kpi"><span class="kpi-label">Bloqués / à vérifier</span><strong id="kpi-blocked">—</strong><small>Non éligibles au dernier relevé</small></div>
+          <div class="kpi"><span class="kpi-label">JOAL uniquement</span><strong id="kpi-solo">0</strong><small>Fichiers indépendants dans appdata</small></div>
+          <div class="kpi"><span class="kpi-label">Règles actives</span><strong id="kpi-rules">—</strong><small>Sur le total configuré</small></div>
+        </div>
+        <div class="notice"><span class="notice-mark" aria-hidden="true">i</span><div><strong id="mode-title">Mode de fonctionnement</strong><p id="mode-desc">Les vitesses affichées sont des plages configurées, et non un débit réel mesuré.</p><p class="inventory-clocks">Dernier inventaire qBittorrent : <span id="inventory-time">—</span> · Dernière évaluation des trackers : <span id="evaluation-time">—</span></p></div></div>
+        <div class="section-header"><div><h2>État des règles</h2><p>Dernier état évalué par le contrôleur</p></div><button type="button" class="text-button" data-view="rules">Modifier les règles →</button></div>
+        <div class="rule-grid" id="overview-rules"><div class="empty">Chargement des règles…</div></div></details>
+        <div class="section-header"><div><h2>Tous les torrents suivis</h2><p>qBittorrent et bibliothèque JOAL uniquement réunis, sans mélange des fichiers.</p></div><button type="button" class="text-button" data-view="torrents">Tri et pagination →</button></div>
+        <div class="mode-batch toolbar"><button type="button" data-toggle-all="dashboard" disabled>Sélectionner tout</button><span class="mode-count">0 sélectionné(s)</span>
+          <button type="button" data-batch-mode="stop" disabled>Stop</button>
+          <button type="button" data-batch-mode="auto" disabled>Auto</button>
+          <button type="button" data-batch-mode="forced" disabled>Forced</button>
+          <button type="button" data-batch-rule disabled>Affecter une règle</button>
+          <button type="button" data-batch-remove disabled title="Retire de JOAL les torrents importés sélectionnés. Les torrents qBittorrent ne sont jamais touchés.">Retirer de JOAL</button>
+          <button type="button" data-clear-mode disabled>Effacer la sélection</button></div>
+        <div class="toolbar"><label class="search"><span class="sr-only">Rechercher dans la vue d’ensemble</span><input id="overview-search" type="search" placeholder="Rechercher un torrent ou un tracker…"></label><button type="button" class="btn btn-compact btn-outline" id="overview-reset-sort" hidden>Revenir au tri par défaut</button><span class="badge badge-neutral" id="overview-count">0 torrent</span></div>
+        <div class="table-panel overview-unified"><div class="table-scroll"><table><thead><tr><th scope="col"><button type="button" class="sort-button" data-home-sort="name" aria-label="Trier par Torrent" aria-pressed="false">Torrent <span aria-hidden="true">↕</span></button> <button type="button" class="sort-button" data-home-sort="rate" aria-label="Trier par Débit" aria-pressed="false">Débit <span aria-hidden="true">↕</span></button> <button type="button" class="sort-button" data-home-sort="volume" aria-label="Trier par Volume" aria-pressed="false">Volume <span aria-hidden="true">↕</span></button></th><th scope="col"><button type="button" class="sort-button" data-home-sort="mode" aria-label="Trier par Mode" aria-pressed="false">Mode <span aria-hidden="true">↕</span></button></th><th scope="col"><button type="button" class="sort-button" data-home-sort="rule" aria-label="Trier par Règle" aria-pressed="false">Règle <span aria-hidden="true">↕</span></button></th><th scope="col"><button type="button" class="sort-button" data-home-sort="seeders" aria-label="Trier par Seeders" aria-pressed="false">Seeders <span aria-hidden="true">↕</span></button> <button type="button" class="sort-button" data-home-sort="homeLeechers" aria-label="Trier par Leechers" aria-pressed="false">Leechers <span aria-hidden="true">↕</span></button></th><th scope="col"><button type="button" class="sort-button" data-home-sort="status" aria-label="Trier par Statut" aria-pressed="false">Statut <span aria-hidden="true">↕</span></button></th><th scope="col"><button type="button" class="sort-button" data-home-sort="trackers" aria-label="Trier par Trackers" aria-pressed="false">Trackers <span aria-hidden="true">↕</span></button></th></tr></thead><tbody id="overview-items"></tbody></table></div></div>
+      </section>
+      <section class="view hidden" id="view-torrents">
+        <div class="section-header"><div><h2>Tous les torrents suivis</h2><details class="view-help"><summary>Aide sur le tableau</summary><p>qBittorrent et JOAL uniquement sont visibles dans le même tableau, avec filtre par mode. Les torrents qBittorrent doivent correspondre au tag ou à la catégorie choisis, actifs ou arrêtés. Cliquez sur les en-têtes pour trier par nom, leechers, ratio, date d’ajout ou toute autre colonne. Les leechers proviennent de relevés scrape HTTP(S)/UDP récents ou de qBittorrent. Une valeur qBittorrent non datée est seulement informative et ne valide pas les basculements ; « Inconnu » ne signifie pas zéro. Les boutons de basculement ne contournent jamais les protections, les seuils ni la temporisation. Glisse la poignée à droite de chaque en-tête pour ajuster sa largeur, puis utilise la barre horizontale en bas du tableau pour atteindre les dernières colonnes.</p></details></div><button type="button" class="btn btn-compact btn-outline" id="torrent-reset-sort" hidden>Revenir au tri par défaut</button><span class="badge badge-neutral" id="table-count">0 lignes</span></div>
+        <div class="notice"><div>Upload simulé JOAL · total <strong id="torrent-joal-upload">—</strong></div></div>
+        <div class="notice notice-subtle upload-disclaimer">Chaque torrent simulé affiche son débit, le volume de la session JOAL et le total de toutes ses sessions. Le tri de la colonne d’envoi utilise le volume réel qBittorrent.</div>
+        <div class="tracker-legend" aria-label="Légende des trackers"><span>Domaines :</span><span class="tracker-chip tracker-covered">Déjà dans une règle active</span><span class="tracker-chip tracker-disabled">Règle désactivée</span><span class="tracker-chip tracker-add">+ Cliquer pour ajouter</span></div>
+        <div class="mode-batch toolbar"><button type="button" data-toggle-all="torrents" disabled>Sélectionner tout</button><span class="mode-count">0 sélectionné(s)</span>
+          <button type="button" data-batch-mode="stop" disabled>Stop</button>
+          <button type="button" data-batch-mode="auto" disabled>Auto</button>
+          <button type="button" data-batch-mode="forced" disabled>Forced</button>
+          <button type="button" data-batch-rule disabled>Affecter une règle</button>
+          <button type="button" data-batch-remove disabled title="Retire de JOAL les torrents importés sélectionnés. Les torrents qBittorrent ne sont jamais touchés.">Retirer de JOAL</button>
+          <button type="button" data-clear-mode disabled>Effacer la sélection</button></div>
+        <div class="toolbar"><label class="search"><span class="sr-only">Chercher un torrent</span><input id="torrent-search" type="search" placeholder="Rechercher par nom, tracker ou hash…"></label><select id="torrent-mode" aria-label="Filtrer par mode"><option value="all">Tous les modes</option><option value="qbit">qBittorrent</option><option value="solo">JOAL uniquement</option></select><select id="torrent-rule" aria-label="Filtrer par règle"><option value="all">Toutes les règles</option></select><select id="torrent-status" aria-label="Filtrer par statut"><option value="all">Tous les statuts</option><option value="selected">Retenus</option><option value="eligible">Éligibles, non retenus</option><option value="excluded">Non éligibles / à vérifier</option></select><label class="page-size-label" for="torrent-page-size">Lignes par page <select id="torrent-page-size" aria-label="Torrents par page"><option value="10">10</option><option value="20">20</option><option value="50">50</option><option value="100" selected>100</option><option value="500">500</option></select></label></div>
+        <div class="table-panel torrent-table-panel"><div id="torrent-table-scroll" class="table-scroll"><table id="torrent-table" class="torrent-table"><colgroup><col><col><col><col><col><col><col><col><col><col><col></colgroup><thead><tr>
+              <th data-sort="name" aria-sort="none"><button type="button" class="sort-button" data-sort-key="name">Torrent <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th data-sort="mode" aria-sort="none"><button type="button" class="sort-button" data-sort-key="mode">Mode <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th data-sort="trackers" aria-sort="none"><button type="button" class="sort-button" data-sort-key="trackers">Tracker (domaine) <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th data-sort="rule" aria-sort="none"><button type="button" class="sort-button" data-sort-key="rule">Règle <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th data-sort="leechers" aria-sort="none"><button type="button" class="sort-button" data-sort-key="leechers">Seeders / leechers <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th data-sort="ratio" aria-sort="none"><button type="button" class="sort-button" data-sort-key="ratio" title="Tri selon le ratio local">Ratio local / cible <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th data-sort="uploaded" aria-sort="none"><button type="button" class="sort-button" data-sort-key="uploaded" title="Volume réellement uploadé par qBittorrent, sans compter les annonces JOAL">Envoi qBittorrent / JOAL <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th data-sort="addedOn" aria-sort="none"><button type="button" class="sort-button" data-sort-key="addedOn">Date d’ajout <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th data-sort="status" aria-sort="none"><button type="button" class="sort-button" data-sort-key="status">État <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th data-sort="reason" aria-sort="none"><button type="button" class="sort-button" data-sort-key="reason">Motif <span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th scope="col">Basculement manuel</th>
+            </tr></thead><tbody id="torrent-items"></tbody></table></div><div class="table-footer"><span id="table-footnote" aria-live="polite">—</span><nav class="table-pagination" aria-label="Pagination des torrents"><button type="button" class="btn btn-compact btn-outline" id="torrent-prev">← Précédent</button><span id="torrent-page-label" aria-live="polite">Page 1 / 1</span><button type="button" class="btn btn-compact btn-outline" id="torrent-next">Suivant →</button></nav></div></div>
+        <div class="torrent-horizontal-nav no-overflow" id="torrent-horizontal-nav" aria-label="Navigation horizontale du tableau des torrents">
+          <span class="torrent-horizontal-label">Défilement horizontal</span>
+          <button type="button" id="torrent-scroll-left" class="btn btn-compact btn-outline" title="Afficher les colonnes de gauche" aria-label="Défiler vers la gauche">◀</button>
+          <div id="torrent-bottom-scroll" class="torrent-bottom-scroll" role="region" aria-label="Barre de défilement horizontale des colonnes" tabindex="0"><div id="torrent-scroll-inner" class="torrent-scroll-inner"></div></div>
+          <button type="button" id="torrent-scroll-right" class="btn btn-compact btn-outline" title="Afficher les colonnes de droite" aria-label="Défiler vers la droite">▶</button>
+          <button type="button" id="torrent-reset-widths" class="btn btn-compact btn-outline" title="Rétablir les largeurs d’origine">↺ Colonnes</button>
+        </div>
+      </section>
+      <section class="view hidden" id="view-swarm">
+        <div class="section-header"><div><h2>Surveillance autonome des trackers</h2><p>Après la première synchronisation avec qBittorrent, les scrapes HTTP(S)/UDP sont indépendants de son API. À l’import, un premier relevé valide suffit pour appliquer le seuil de la règle. Si le scrape est indisponible, le mode Auto peut demander les compteurs par une annonce d’arrêt à zéro octet envoyé.</p></div><span class="badge badge-neutral" id="swarm-count">0 torrents</span></div>
+        <div class="notice notice-subtle">Les tracker privés peuvent refuser les requêtes scrape. Une valeur absente ou ancienne reste <strong>Inconnue</strong>, jamais zéro. La connexion à qBittorrent reste indispensable pour le contrôle des torrents démarrés et pour toute action de gestion.</div>
+        <div class="settings-panel"><p class="muted">Dernière actualisation du tableau : <span id="swarm-time">—</span>. Seuls les domaines des trackers sont affichés ; aucune passkey n’est envoyée au navigateur.</p>
+          <div class="table-panel"><div class="table-scroll"><table><thead><tr><th>Torrent</th><th>Domaines</th><th>Règle</th><th>Seeders / leechers (scrape)</th><th>Horodatage</th><th>Qualité</th><th>Historique</th><th>Diagnostic des trackers</th></tr></thead><tbody id="swarm-items"></tbody></table></div></div>
+        </div>
+      </section>
+      <section class="view hidden" id="view-import">
+        <div class="section-header"><div><h2>Importer des fichiers .torrent — JOAL uniquement</h2><p>Bibliothèque indépendante dans /data/torrents : aucun téléchargement et aucune importation dans qBittorrent.</p></div></div>
+        <form id="import-form" class="settings-panel import-panel">
+          <div class="notice notice-subtle"><span class="notice-mark" aria-hidden="true">i</span><div>Tous les fichiers importés ici sont conservés dans <code>/data/torrents/</code> et ne sont jamais transférés à qBittorrent. Seules les métadonnées sont nécessaires pour les relevés. Les sessions JOAL restent soumises aux seuils de leechers et au mode dryRun.</div></div>
+          <label class="import-drop" for="import-file"><span class="import-glyph" aria-hidden="true">⇧</span><strong>Choisir des fichiers .torrent</strong><span>Analyse automatique · jusqu’à 30 fichiers par lot · 50 Mio par fichier · 64 Mio par lot</span><input type="file" id="import-file" accept=".torrent,application/x-bittorrent" multiple required></label>
+          
+          <div id="import-preview" class="import-preview hidden" aria-live="polite"></div>
+          <div class="savebar"><span id="import-message" class="muted">Aucun fichier sélectionné. L’analyse commencera automatiquement dès la sélection.</span><button type="submit" class="btn btn-primary" id="import-submit" disabled>Ajouter à JOAL uniquement</button></div>
+        </form>
+        <div class="settings-panel watch-panel">
+          <div class="notice notice-subtle"><span class="notice-mark" aria-hidden="true">i</span><div><strong>Dossier surveillé</strong> : dépose des fichiers <code>.torrent</code> dans <code id="watch-folder">data/import/</code> (par exemple via un partage SMB). Ils sont importés automatiquement toutes les 15 secondes puis déplacés dans <code>traités/</code>, <code>doublons/</code> ou <code>erreurs/</code> (avec un fichier <code>.erreur.txt</code> qui explique le refus).</div></div>
+          <ul id="watch-recent" class="watch-recent"><li class="muted">Aucun fichier traité depuis le démarrage.</li></ul>
+        </div>
+        <div class="section-header"><div><h2>Bibliothèque JOAL uniquement</h2><p>Fichiers stockés durablement dans l’appdata Unraid. Clique sur un domaine de tracker pour l’ajouter à une règle. « En attente » signifie aucune annonce JOAL pour ce torrent.</p></div><button type="button" class="btn btn-compact btn-outline" id="solo-reset-sort" hidden>Revenir au tri par défaut</button><span class="badge badge-neutral" id="solo-count">0 torrent</span></div>
+        <div class="mode-batch toolbar"><button type="button" data-toggle-all="import" disabled>Sélectionner tout</button><span class="mode-count">0 sélectionné(s)</span>
+          <button type="button" data-batch-mode="stop" disabled>Stop</button>
+          <button type="button" data-batch-mode="auto" disabled>Auto</button>
+          <button type="button" data-batch-mode="forced" disabled>Forced</button>
+          <button type="button" data-batch-rule disabled>Affecter une règle</button>
+          <button type="button" data-batch-remove disabled title="Retire de JOAL les torrents importés sélectionnés. Les torrents qBittorrent ne sont jamais touchés.">Retirer de JOAL</button>
+          <button type="button" data-clear-mode disabled>Effacer la sélection</button></div>
+        <div class="table-panel"><div class="table-scroll"><table><thead><tr><th scope="col"><button type="button" class="sort-button" data-solo-sort="name" aria-label="Trier par Nom" aria-pressed="false">Nom <span aria-hidden="true">↕</span></button> <button type="button" class="sort-button" data-solo-sort="rate" aria-label="Trier par Débit" aria-pressed="false">Débit <span aria-hidden="true">↕</span></button> <button type="button" class="sort-button" data-solo-sort="volume" aria-label="Trier par Total envoyé" aria-pressed="false">Total envoyé <span aria-hidden="true">↕</span></button></th><th scope="col"><button type="button" class="sort-button" data-solo-sort="trackers" aria-label="Trier par Trackers" aria-pressed="false">Trackers <span aria-hidden="true">↕</span></button></th><th scope="col"><button type="button" class="sort-button" data-solo-sort="assignedRule" aria-label="Trier par Règle" aria-pressed="false">Règle <span aria-hidden="true">↕</span></button></th><th scope="col"><button type="button" class="sort-button" data-solo-sort="seeders" aria-label="Trier par Seeders" aria-pressed="false">Seeders <span aria-hidden="true">↕</span></button> <button type="button" class="sort-button" data-solo-sort="homeLeechers" aria-label="Trier par Leechers" aria-pressed="false">Leechers <span aria-hidden="true">↕</span></button></th><th scope="col"><button type="button" class="sort-button" data-solo-sort="threshold" aria-label="Trier par Seuil" aria-pressed="false">Seuil <span aria-hidden="true">↕</span></button></th><th scope="col"><button type="button" class="sort-button" data-solo-sort="soloStatus" aria-label="Trier par État" aria-pressed="false">État <span aria-hidden="true">↕</span></button> <button type="button" class="sort-button" data-solo-sort="reason" aria-label="Trier par Motif" aria-pressed="false">Motif <span aria-hidden="true">↕</span></button></th><th>Gestion</th></tr></thead><tbody id="solo-items"><tr><td colspan="7">En cours de chargement…</td></tr></tbody></table></div></div>
+      </section>
+      <section class="view hidden" id="view-cleanup">
+        <div class="section-header"><div><h2>Historique des leechers et nettoyage</h2><p>Suivi indépendant des valeurs mises en cache par qBittorrent.</p></div></div>
+        <div class="notice notice-subtle"><span class="notice-mark" aria-hidden="true">i</span><div>Le compteur démarre uniquement après un <strong>scrape HTTP(S)/UDP frais</strong> réussi auprès de chaque tracker autorisé. Les trackers qui refusent les scrapes empêchent le nettoyage automatique. Les requêtes sont limitées et effectuées uniquement si le suivi est activé. Cette fonction peut supprimer définitivement les fichiers si vous l'activez explicitement.</div></div>
+        <div class="settings-panel">
+          <div class="settings-grid">
+            <div><span class="muted">Dernière vérification</span><h3 id="cleanup-time">—</h3></div>
+            <div><span class="muted">État</span><h3 id="cleanup-state">Désactivé</h3></div>
+            <div><span class="muted">Torrents en suivi</span><h3 id="cleanup-count">0</h3></div>
+            <div><span class="muted">Suppressions demandées</span><h3 id="cleanup-deleted">0</h3></div>
+          </div>
+          <div class="table-panel"><div class="table-scroll"><table><thead><tr><th>Torrent</th><th>Leechers</th><th>0 depuis</th><th>Temps restant</th><th>État / motif</th></tr></thead><tbody id="cleanup-items"></tbody></table></div></div>
+          <p class="muted" id="cleanup-footnote">Les relevés sont interrompus si un torrent est réactivé, un tracker échoue ou un leecher apparaît.</p>
+        </div>
+      </section>
+      <section class="view hidden" id="view-rules">
+        <div class="section-header"><div><h2>Règles de surveillance</h2><p>Crée une règle par tracker ou groupe de domaines, sans écrire de JSON.</p></div><button type="button" class="btn btn-primary" id="add-rule">+ Nouvelle règle</button></div>
+        <div class="notice notice-subtle"><span class="notice-mark" aria-hidden="true">i</span><div>Les domaines doivent être indiqués sans <code>http://</code>, chemins <code>/announce</code> ni passkeys. Un tracker HTTP(S) ou UDP doit être opérationnel et atteindre le seuil de leechers.</div></div>
+        <div id="rule-editor" class="editor-stack"></div>
+        <div class="savebar"><span id="rule-save-status" class="muted">Modifications non enregistrées : aucune</span><button type="button" class="btn btn-outline" id="cancel-rules">Annuler les modifications</button><button type="button" class="btn btn-primary" id="save-rules">Enregistrer et appliquer</button></div>
+      </section>
+      <section class="view hidden" id="view-diagnostics">
+        <div class="section-header"><div><h2>Diagnostic &amp; historique des sessions</h2><p>Surveillance en lecture seule. Les compteurs instantanés figurent dans la vue Torrents.</p></div><div class="diagnostic-actions"><button type="button" id="diag-refresh" class="btn btn-outline">↻ Actualiser</button><button type="button" id="diag-export" class="btn btn-outline">↓ Exporter JSON</button></div></div>
+        <div class="kpis diag-kpis"><div class="kpi"><span class="kpi-label">Connexion qBittorrent</span><strong id="diag-qbit">—</strong></div><div class="kpi"><span class="kpi-label">Processus JOAL</span><strong id="diag-processes">—</strong></div><div class="kpi"><span class="kpi-label">Dernier inventaire</span><strong id="diag-inventory">—</strong></div><div class="kpi"><span class="kpi-label">Dernier scrape</span><strong id="diag-scrape">—</strong></div></div>
+        <div class="notice notice-subtle"><span class="notice-mark" aria-hidden="true">i</span><div>Les sessions indiquent une activité de processus JOAL, <strong>pas un volume uploadé ni une validation par le tracker</strong>. Le total des volumes simulés par torrent est conservé entre les sessions. L'historique enregistre les changements d'état, pas chaque actualisation.</div></div>
+        <div class="section-header"><div><h2>Événements récents</h2><p>Évolutions de statut, demandes manuelles, démarrages et arrêts de session</p></div></div>
+        <div class="table-panel"><div class="table-scroll"><table><thead><tr><th>Date</th><th>Événement</th><th>Torrent (infohash)</th><th>Règle</th></tr></thead><tbody id="diag-events"><tr><td colspan="4">Chargement…</td></tr></tbody></table></div></div>
+        <div class="section-header"><div><h2>Sessions JOAL enregistrées</h2><p>Durée et état des sessions, sans inventer de quantité transférée</p></div></div>
+        <div class="table-panel"><div class="table-scroll"><table><thead><tr><th>Début</th><th>Fin</th><th>Infohash</th><th>Règle</th><th>État</th><th>Durée</th><th>Volume JOAL</th></tr></thead><tbody id="diag-sessions"><tr><td colspan="7">Chargement…</td></tr></tbody></table></div></div>
+        <p class="muted" id="diag-notice"></p>
+      </section>
+      <section class="view hidden" id="view-health">
+        <div class="section-header"><div><h2>Santé du contrôleur</h2><p>État des threads de surveillance, des journaux et du stockage. Actualisé toutes les 10 secondes sur cette page.</p></div><button type="button" id="health-refresh" class="btn btn-outline">↻ Actualiser</button></div>
+        <div class="kpis"><div class="kpi"><span class="kpi-label">Version</span><strong id="health-version">—</strong></div><div class="kpi"><span class="kpi-label">Démarré depuis</span><strong id="health-uptime">—</strong></div><div class="kpi"><span class="kpi-label" id="health-disk-label">Espace libre /data</span><strong id="health-disk">—</strong></div><div class="kpi"><span class="kpi-label">qBittorrent</span><strong id="health-qbit">—</strong></div></div>
+        <div class="section-header"><div><h2>Threads de surveillance</h2><p>« En retard » : aucune exécution depuis plus de deux périodes. Un thread qui plante redémarre seul après 5 s.</p></div></div>
+        <div class="table-panel"><div class="table-scroll"><table><thead><tr><th>Thread</th><th>État</th><th>Dernière exécution</th><th>Période</th><th>Redémarrages</th><th>Dernière erreur</th></tr></thead><tbody id="health-threads"><tr><td colspan="6">Chargement…</td></tr></tbody></table></div></div>
+        <div class="section-header"><div><h2>Journaux JOAL</h2><p id="health-log-limit">Rotation automatique par taille.</p></div></div>
+        <div class="table-panel"><div class="table-scroll"><table><thead><tr><th>Session</th><th>Fichier</th><th>Taille</th></tr></thead><tbody id="health-logs"><tr><td colspan="3">Chargement…</td></tr></tbody></table></div></div>
+        <div class="section-header"><div><h2>Dossier surveillé</h2><p id="health-import">—</p></div></div>
+      </section>
+      <section class="view hidden" id="view-backup">
+        <div class="section-header"><div><h2>Sauvegardes persistantes</h2><p>Sauvegarder et restaurer les fichiers de configuration, profils JOAL, suivis et historiques locaux.</p></div></div>
+        <div class="settings-panel backup-section">
+          <div class="notice notice-subtle">Le ZIP contient des informations confidentielles, notamment les URLs privées des trackers. Il ne contient ni les fichiers téléchargés dans qBittorrent, ni les identifiants Docker, ni les fichiers temporaires du moteur JOAL.</div>
+          <h3>Exporter les données</h3>
+          <p class="muted">Un téléchargement ZIP regroupant les données persistantes du volume <code>/data</code>. Taille maximale 64 Mio.</p>
+          <button type="button" class="btn btn-primary" id="backup-export">↓ Télécharger la sauvegarde</button>
+          <hr>
+          <h3>Restaurer depuis une sauvegarde</h3>
+          <p class="muted">La restauration n'est autorisée qu'avec <strong>dryRun activé</strong>, aucune session JOAL en cours et aucun torrent détenu par le contrôleur. Le ZIP est validé puis appliqué <strong>au prochain redémarrage du conteneur</strong>. Avant l'application, un point de restauration local est créé dans <code>/data/backups/</code>.</p>
+          <p class="muted">Après restauration : dryRun et les protections anti-suppression sont activés. Vérifier les paramètres avant toute réactivation.</p>
+          <label class="restore-label" for="backup-file">Fichier ZIP à restaurer<input type="file" id="backup-file" accept=".zip,application/zip"></label>
+          <label class="backup-confirm"><input type="checkbox" id="backup-confirm"> Je confirme avoir une copie de mes données actuelles et vouloir préparer cette restauration.</label>
+          <button type="button" class="btn btn-outline" id="backup-restore">Valider et préparer la restauration</button>
+          <p id="backup-result" class="muted" role="status"></p>
+        </div>
+      </section>
+      <section class="view hidden" id="view-settings">
+        <div class="section-header"><div><h2>Paramètres généraux</h2><p>Modifie le fonctionnement du contrôleur et sa fréquence de surveillance.</p></div></div>
+        <section class="settings-panel design-panel" aria-labelledby="design-title"><h2 id="design-title">Apparence</h2><p class="muted">Le design s’applique tout de suite, à tous les navigateurs et à la page de connexion.</p>
+          <div class="design-choices" role="radiogroup" aria-labelledby="design-title">
+            <label class="design-choice design-choice-classique"><input type="radio" name="interface-design" value="classique"><span class="design-swatch" aria-hidden="true"></span><span><strong>Classique</strong><small>Sombre, accents turquoise</small></span></label>
+            <label class="design-choice design-choice-baie"><input type="radio" name="interface-design" value="baie"><span class="design-swatch" aria-hidden="true"></span><span><strong>Baie</strong><small>Clair, façon baie de brassage</small></span></label>
+          </div><p class="muted" id="design-message" role="status"></p></section>
+        <form id="qbit-connection" class="settings-panel">
+          <h2>Connexion qBittorrent</h2><div class="settings-grid">
+          <label>Adresse de la Web UI<input id="qbit-url" type="url" placeholder="http://192.168.1.10:8080"></label>
+          <label>Utilisateur<input id="qbit-user" autocomplete="off"></label>
+          <label>Mot de passe<input id="qbit-password" type="password" autocomplete="new-password"></label></div>
+          <label><input id="qbit-clear-password" type="checkbox"> Effacer le mot de passe enregistré</label>
+          <p class="muted" id="qbit-message" role="status">Les champs Docker servent de valeurs par défaut. Les modifications s’appliquent immédiatement, sans redémarrage.</p>
+          <button id="qbit-save" type="submit" class="btn btn-primary" disabled>Enregistrer la connexion</button>
+          <button id="qbit-docker" type="button" class="btn btn-outline" disabled>Reprendre les valeurs Docker</button></form>
+        <div class="settings-panel"><label class="switch-line"><div><strong>Simulation locale (dryRun)</strong><p>Lorsque cette option est activée, le contrôleur évalue les règles sans lancer JOAL.</p></div><input id="setting-dryrun" type="checkbox" role="switch"></label><div class="settings-grid"><label>Suivre les torrents qBittorrent par<select id="setting-filter-mode"><option value="tag">Tag</option><option value="category">Catégorie</option><option value="either">Tag ou catégorie</option></select></label><label id="category-field" class="hidden">Catégories qBittorrent (un nom exact par ligne)<textarea id="setting-category" rows="3" spellcheck="false" placeholder="Films&#10;Séries"></textarea></label><label id="tag-field">Tag qBittorrent<input id="setting-tag" type="text" maxlength="50" autocomplete="off"></label><label>Actualisation (secondes)<input id="setting-refresh" type="number" min="60" max="3600" step="1"></label><label>Sessions simultanées (limite globale)<input id="setting-max" type="number" min="1" max="1000" step="1"></label><label>Tag de fin<input id="setting-completed" type="text" maxlength="50" autocomplete="off"></label><label>Surveillance rapide (secondes)<input id="setting-guard" type="number" min="3" max="60" step="1"></label></div>
+          <details class="section-fold"><summary>Relevés indépendants des trackers</summary><p class="muted">Lecture directe des leechers par scrape HTTP(S)/UDP, même lorsque qBittorrent est arrêté ou momentanément indisponible.</p>
+          <label class="switch-line"><div><strong>Activer les relevés autonomes</strong><p>Interroge uniquement les domaines autorisés. Ne modifie ni qBittorrent ni les annonces JOAL.</p></div><input id="setting-swarm-enabled" type="checkbox" role="switch"></label>
+          <div class="settings-grid"><label>Intervalle des relevés (minutes)<input id="setting-swarm-interval" type="number" min="15" max="1440" step="1"></label><label>Fraîcheur maximale (minutes)<input id="setting-swarm-age" type="number" min="15" max="2880" step="1"></label></div>
+          <div class="notice notice-subtle">Les URLs privées des trackers sont enregistrées dans <code>/data/tracker-registry.json</code> avec permissions limitées. Protéger le volume <code>data/</code> et ses sauvegardes.</div>
+          </details><details class="section-fold"><summary>Priorité à qBittorrent et anti-basculement</summary><p class="muted">Les mesures récentes des trackers et une temporisation persistante évitent les changements répétés. qBittorrent reste prioritaire en cas d'incertitude.</p>
+          <label class="switch-line"><div><strong>Autoriser le basculement automatique (désactivé par défaut)</strong><p>Option avancée : après plusieurs relevés scrape frais confirmés, le contrôleur peut demander l'arrêt d'un torrent complet dans qBittorrent. En cas d'échec, le partage réel reprend la priorité. Ne redémarre jamais un torrent arrêté manuellement.</p></div><input id="setting-handoff-enabled" type="checkbox" role="switch"></label>
+          <div class="settings-grid"><label>Attente minimale après retour sous qBittorrent (minutes)<input id="setting-handoff-cooldown" type="number" min="60" max="10080" step="1"></label><label>Nombre de relevés frais consécutifs requis<input id="setting-handoff-confirmations" type="number" min="2" max="5" step="1"></label><label>Marge pour validation immédiate (+ leechers)<input id="setting-handoff-fast-margin" type="number" min="1" max="1000" step="1"></label></div>
+          <div class="notice notice-subtle">Par défaut, la gestion reste manuelle. En cas de réponse scrape fraîche ≥ seuil + marge, un seul relevé suffit pour confirmer l'arrivée de leechers. Sinon, les confirmations normales restent nécessaires. Un scrape partiel ne mesure que les trackers ayant répondu. Les compteurs qBittorrent en cache ne déclenchent aucun arrêt automatique. Le délai de 60 minutes subsiste après redémarrage du conteneur.</div>
+          </details><details class="section-fold"><summary>Nettoyage automatique</summary><p class="muted">Surveillance via scrape HTTP(S)/UDP frais et purge à risque — désactivée par défaut.</p>
+          <label class="switch-line"><div><strong>Suivre les leechers des trackers autorisés</strong><p>Effectue des scrapes espacés pour construire un historique des zéros. Les valeurs mises en cache ne sont pas prises en compte.</p></div><input id="setting-cleanup-enabled" type="checkbox" role="switch"></label>
+          <div class="settings-grid"><label>Jours consécutifs sans leechers<input id="setting-cleanup-days" type="number" min="3" max="365" step="1"></label><label>Intervalle de vérification (minutes)<input id="setting-cleanup-frequency" type="number" min="30" max="1440" step="1"></label></div>
+          <label class="switch-line"><div><strong>Supprimer automatiquement le torrent ET ses données</strong><p>Définitivement et uniquement après trois jours minimum de scrapes frais consécutifs, une relecture de l'état et une confirmation finale. Nécessite également que dryRun soit désactivé. Ne pas activer sans sauvegarde.</p></div><input id="setting-cleanup-delete" type="checkbox" role="switch"></label>
+          <div class="notice notice-subtle">Si le tracker ne prend pas en charge les scrapes, aucune suppression automatique ne sera effectuée pour ce torrent. Les chiffres qBittorrent peuvent être anciens et ne servent pas de preuve.</div></details><div class="savebar"><span class="muted" id="settings-save-status">—</span><button type="button" class="btn btn-outline" id="cancel-settings">Annuler</button><button type="button" class="btn btn-primary" id="save-settings">Enregistrer et appliquer</button></div></div>
+        <div class="notice notice-subtle"><span class="notice-mark" aria-hidden="true">i</span><div>Les paramètres réseau Docker, les identifiants qBittorrent et le mot de passe de cette interface se gèrent depuis <strong>Docker → Edit</strong> dans Unraid. Le port BitTorrent TCP 49152 n’est pas publié par Smart Controller : les connexions de partage réelles restent gérées par qBittorrent.</div></div>
+      </section>
+      <section class="view hidden" id="view-json"><div class="section-header"><div><h2>JSON avancé</h2><p>Édition manuelle complète de <code>policy.json</code>. Réservé aux configurations spécifiques.</p></div></div><div class="settings-panel"><label class="json-label" for="json-editor">Configuration actuelle</label><textarea id="json-editor" spellcheck="false" aria-label="JSON de configuration"></textarea><div class="notice notice-subtle">Sauvegarde de <code>policy.json</code> uniquement, sans les identifiants Docker ni les historiques persistants. Le fichier exporté peut contenir tes règles et domaines de trackers.</div><div class="json-backup"><button type="button" class="btn btn-outline" id="export-policy">↓ Sauvegarder les règles (.json)</button><label class="restore-label" for="restore-policy-file">Fichier de restauration <input type="file" id="restore-policy-file" accept=".json,application/json"></label><button type="button" class="btn btn-outline" id="restore-policy">Restaurer ce fichier</button></div><div class="savebar"><span id="json-save-status" class="muted">—</span><button type="button" class="btn btn-outline" id="cancel-json">Recharger</button><button type="button" class="btn btn-primary" id="save-json">Valider et enregistrer</button></div></div></section>
+      <footer class="footer"><span>JOAL Smart Controller v__APP_VERSION__ · JOAL __JOAL_VERSION__ · API qBittorrent v2</span><span>Volume réel : compteurs qBittorrent. JOAL : débit et volume simulé de la session.</span></footer>
+    </main>
+  </div>
+  <dialog id="swarm-history-dialog" class="history-dialog" aria-labelledby="swarm-history-title">
+    <div class="history-header"><div><h2 id="swarm-history-title">Historique des leechers</h2><p id="swarm-history-subtitle" class="muted"></p></div><button type="button" id="swarm-history-close" class="btn btn-outline">Fermer</button></div>
+    <label class="swarm-series-picker">Courbe affichée <select id="swarm-history-series" aria-label="Choisir le tracker dans le graphique"><option value="all">Maximum observé (règle)</option></select></label>
+    <div id="swarm-history-chart" class="swarm-chart" role="img" aria-label="Courbe du nombre de leechers"></div>
+    <p id="swarm-history-description" class="muted"></p>
+  </dialog>
+  <dialog id="peer-chart-dialog" class="history-dialog" aria-labelledby="peer-chart-title">
+    <div class="history-header"><div><h2 id="peer-chart-title">Seeders et leechers</h2><p id="peer-chart-subtitle" class="muted"></p></div><button type="button" id="peer-chart-close" class="btn btn-outline">Fermer</button></div>
+    <div class="peer-legend"><span class="legend-seeders">Seeders</span><span class="legend-leechers">Leechers</span></div>
+    <div id="peer-chart" class="swarm-chart" role="img" aria-label="Seeders et leechers selon le temps"></div>
+    <p id="peer-chart-description" class="muted"></p>
+  </dialog>
+  <dialog id="torrent-history-dialog" class="history-dialog" aria-labelledby="history-title">
+    <div class="history-header"><div><h2 id="history-title">Historique du torrent</h2><p id="history-subtitle" class="muted"></p></div><button type="button" id="history-close" class="btn btn-outline">Fermer</button></div>
+    <p class="muted" id="history-disclaimer">Volumes de session JOAL non archivés.</p>
+    <div id="history-content" class="history-content"></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
