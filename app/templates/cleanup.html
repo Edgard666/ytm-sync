@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% block body %}
+<div class="row" style="margin-bottom:12px"><h1 style="margin:0">Ménage</h1><div class="sp"></div>
+<a class="btn" href="/export/cleanup.csv">Exporter (CSV)</a></div>
+<div class="help">Titres <b>téléchargés via YTM Sync</b> qui ne sont plus dans aucune playlist surveillée (ou que tu as ignorés depuis).
+<b>Rien n'est jamais supprimé automatiquement</b> : cette liste sert seulement à t'aider à faire le ménage toi-même dans ta bibliothèque.
+« Oublier » retire seulement la ligne de cette liste, le fichier n'est pas touché.<br>
+Suivi depuis la v3.0.0 : {{ total }} titre(s) arrivé(s) dans Navidrome après une demande SoulSync.</div>
+<div class="card">
+{% if rows %}
+<table id="t"><tr><th></th><th>Artiste</th><th>Titre</th><th>Album</th><th>Fichier Navidrome</th><th>Arrivé le</th><th>Raison</th></tr>
+{% for o in rows %}<tr>
+<td><input type="checkbox" class="sel" value="{{ o.videoId }}" style="width:18px;height:18px;accent-color:var(--acc)"></td>
+<td>{{ o.nd_artist or o.artist }}</td>
+<td><a href="https://music.youtube.com/watch?v={{ o.videoId }}" target="_blank" rel="noopener">{{ o.nd_title or o.title }}</a></td>
+<td class="mut">{{ o.nd_album or '' }}</td><td class="mut"><small>{{ o.nd_path or '' }}</small></td>
+<td class="mut">{{ o.at|dtf }}</td><td><span class="badge b-ign">{{ o.reason }}</span></td></tr>
+{% endfor %}</table>
+<p><button class="btn" onclick="forget()">Oublier la sélection</button></p>
+{% else %}<p class="mut">Rien à signaler : tous les titres téléchargés via YTM Sync sont encore dans une playlist.</p>{% endif %}
+</div>
+{% endblock %}
+{% block js %}<script>
+async function forget(){const ids=[...document.querySelectorAll('.sel:checked')].map(c=>c.value);
+  if(!ids.length)return;if(!confirm(ids.length+' ligne(s) retirée(s) de cette liste. Les fichiers ne sont pas touchés. Continuer ?'))return;
+  await api('/api/cleanup/forget',{ids});location.reload()}
+</script>{% endblock %}

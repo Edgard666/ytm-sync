@@ -75,3 +75,4 @@ th.sort-desc .th-top span::after{content:" ▼";color:var(--acc2)}
 .th-box{gap:4px;margin-top:6px}
 .th-box input{padding:4px 7px;font-size:12px;text-transform:none;font-weight:400;min-width:90px}
 .th-clear{background:var(--panel2);border:1px solid var(--line);color:var(--mut);border-radius:6px;cursor:pointer;padding:0 7px}
+.log .s{color:#c59cf5}

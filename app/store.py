@@ -28,8 +28,9 @@ DEFAULT_CFG = {
     "auth": {"password_hash": ""},
     "navidrome": {"url": "", "user": "", "password": ""},
     "soulsync": {"url": "", "api_key": "", "profile_id": "1"},
-    "playlists": [],  # {id, source, nd_name, enabled}
-    "ignored": {},    # videoId -> {"artist", "title", "at"} : titres volontairement ignores
+    "nd_accounts": [],  # comptes Navidrome supplementaires {id, user, password} (proprietaires de playlists)
+    "playlists": [],  # {id, source, nd_name, enabled, nd_account}
+    "ignored": {},    # videoId -> {"artist", "title", "key", "at"} : titres volontairement ignores
     "overrides": {},  # videoId -> {"nd_id": lien manuel, "blocked": [ids Navidrome refuses]}
     "sync": {
         "dry_run": True,
@@ -40,13 +41,27 @@ DEFAULT_CFG = {
         "re_request_days": 7,
         "duration_tolerance": 15,
         "strict_versions": True,
+        "library_cache": True,
+        "exclude_rules": "",
     },
+    "monitor": {"enabled": True, "interval_min": 5, "auto_scan": True, "resync_after": True},
+    "notify": {
+        "on_sync": "changes",  # always | changes | errors | never
+        "on_dl_fail": True,
+        "ntfy": {"enabled": False, "url": "https://ntfy.sh", "topic": "", "token": ""},
+        "gotify": {"enabled": False, "url": "", "token": ""},
+        "email": {"enabled": False, "host": "", "port": 587, "security": "starttls",
+                  "user": "", "password": "", "from": "", "to": ""},
+    },
+    "security": {"behind_proxy": False, "api_key": ""},
     "nd_playlists": {"enabled": True, "prefix": "YT - ", "public": False},
     "schedule": {"enabled": False, "mode": "interval", "interval_hours": 6, "daily_time": "03:00"},
     "logs_keep": 30,
 }
 
-DEFAULT_STATE = {"tracks": {}, "playlists": {}, "last_run": None, "history": []}
+DEFAULT_STATE = {"tracks": {}, "playlists": {}, "last_run": None, "history": [],
+                 "downloaded": {},  # videoId -> morceau arrive dans Navidrome apres une demande SoulSync
+                 "monitor": {}}
 
 
 def _merge(data, defaults):

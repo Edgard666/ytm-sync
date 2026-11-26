@@ -6,6 +6,7 @@
   <div class="ver">Version {{ version }}</div>
   {% with msgs = get_flashed_messages(with_categories=true) %}{% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}{% endwith %}
   <form method="post" class="card">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     {% if setup %}
       <h2>Premier démarrage</h2>
       <p class="mut">Choisis le mot de passe de l'interface.</p>

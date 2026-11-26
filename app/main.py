@@ -1,21 +1,27 @@
 """YTM Sync — interface web."""
+import collections
 import datetime as dt
 import functools
+import hmac
+import json
 import os
+import secrets
 import threading
 import time
 import uuid
 
-from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from waitress import serve
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from .engine import (Navidrome, SoulSync, SyncRunner, next_run_ts, pl_id, scheduler_loop,
-                     ytm_account, ytm_client, ytm_setup_from_headers)
+from . import notify
+from .engine import (DL_LABEL, Monitor, Navidrome, SoulSync, SyncRunner, nd_for, next_run_ts, pl_id,
+                     scheduler_loop, soulsync_from, ytm_account, ytm_client, ytm_setup_from_headers)
 from .store import AUTH_F, VERSION, Store
 
 store = Store()
 runner = SyncRunner(store)
+monitor = Monitor(store, runner)
 app = Flask(__name__)
 app.secret_key = store.secret_key()
 app.config.update(SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_HTTPONLY=True,
@@ -30,7 +36,49 @@ def dtf(ts):
 
 @app.context_processor
 def inject():
-    return {"version": VERSION}
+    return {"version": VERSION, "csrf_token": csrf_token, "dl_label": DL_LABEL}
+
+
+# ------------------------------------------------------------------ securite
+def csrf_token():
+    if "csrf" not in session:
+        session["csrf"] = secrets.token_urlsafe(32)
+    return session["csrf"]
+
+
+def client_ip():
+    if store.cfg["security"].get("behind_proxy") and request.access_route:
+        return request.access_route[0]
+    return request.remote_addr or "?"
+
+
+FAILS = collections.defaultdict(list)  # ip -> horodatages des echecs de connexion
+MAX_FAILS, FAIL_WINDOW = 5, 15 * 60
+
+
+def _locked(ip):
+    FAILS[ip] = [t for t in FAILS[ip] if time.time() - t < FAIL_WINDOW]
+    return len(FAILS[ip]) >= MAX_FAILS
+
+
+@app.before_request
+def csrf_protect():
+    if request.method == "POST" and not request.path.startswith("/api/ext/"):
+        sent = request.form.get("_csrf") or request.headers.get("X-CSRF-Token") or ""
+        if not session.get("csrf") or not hmac.compare_digest(sent, session["csrf"]):
+            if request.path.startswith("/api/"):
+                return jsonify(ok=False, error="Jeton de sécurité invalide : recharge la page.", msg="Jeton de sécurité invalide : recharge la page."), 400
+            flash("Session expirée : recommence.", "err")
+            ref = request.referrer or "/"
+            return redirect(ref if ref.startswith(request.host_url) else "/")
+
+
+@app.after_request
+def sec_headers(r):
+    r.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    r.headers.setdefault("X-Content-Type-Options", "nosniff")
+    r.headers.setdefault("Referrer-Policy", "same-origin")
+    return r
 
 
 # ------------------------------------------------------------------ authentification
@@ -68,12 +116,22 @@ def login():
     if not store.cfg["auth"]["password_hash"]:
         return redirect(url_for("setup"))
     if request.method == "POST":
-        if check_password_hash(store.cfg["auth"]["password_hash"], request.form.get("password", "")):
-            session.permanent, session["ok"] = True, True
+        ip = client_ip()
+        if _locked(ip):
+            wait = int((FAIL_WINDOW - (time.time() - FAILS[ip][0])) / 60) + 1
+            flash(f"Trop de tentatives : réessaie dans {wait} min.", "err")
+        elif check_password_hash(store.cfg["auth"]["password_hash"], request.form.get("password", "")):
+            FAILS.pop(ip, None)
+            tok = session.get("csrf")
+            session.clear()  # nouvelle session apres connexion
+            session.permanent, session["ok"], session["csrf"] = True, True, tok or secrets.token_urlsafe(32)
             nxt = request.args.get("next", "/")
-            return redirect(nxt if nxt.startswith("/") else "/")
-        time.sleep(1)
-        flash("Mot de passe incorrect.", "err")
+            return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else "/")
+        else:
+            FAILS[ip].append(time.time())
+            time.sleep(1)
+            left = MAX_FAILS - len(FAILS[ip])
+            flash("Mot de passe incorrect." + (f" ({left} essai(s) restant(s))" if left <= 2 else ""), "err")
     return render_template("login.html", setup=False)
 
 
@@ -109,13 +167,15 @@ def playlists():
                 flash("Cette playlist est déjà surveillée.", "err")
             else:
                 pls.append({"id": uuid.uuid4().hex[:8], "source": src,
-                            "nd_name": request.form.get("nd_name", "").strip(), "enabled": True})
+                            "nd_name": request.form.get("nd_name", "").strip(), "enabled": True,
+                            "nd_account": request.form.get("nd_account", "")})
                 flash("Playlist ajoutée.", "ok")
         else:
             p = next((x for x in pls if x["id"] == request.form.get("id")), None)
             if p and act == "save":
                 p["nd_name"] = request.form.get("nd_name", "").strip()
                 p["enabled"] = request.form.get("enabled") == "on"
+                p["nd_account"] = request.form.get("nd_account", "")
                 flash("Playlist enregistrée.", "ok")
             elif p and act == "delete":
                 pls.remove(p)
@@ -195,7 +255,25 @@ def settings():
                              artist_threshold=min(1.0, max(0.0, float(f.get("artist_threshold", 0.6)))),
                              re_request_days=max(0, int(f.get("re_request_days", 7))),
                              duration_tolerance=max(0, int(f.get("duration_tolerance", 15))),
-                             strict_versions=f.get("strict_versions") == "on")
+                             strict_versions=f.get("strict_versions") == "on",
+                             library_cache=f.get("library_cache") == "on",
+                             exclude_rules=f.get("exclude_rules", "").strip())
+            c["monitor"].update(enabled=f.get("mon_enabled") == "on", auto_scan=f.get("mon_scan") == "on",
+                                resync_after=f.get("mon_resync") == "on",
+                                interval_min=max(1, int(f.get("mon_interval", 5))))
+            n = c["notify"]
+            n.update(on_sync=f.get("nt_on_sync", "changes"), on_dl_fail=f.get("nt_dl_fail") == "on")
+            n["ntfy"].update(enabled=f.get("ntfy_on") == "on", url=f.get("ntfy_url", "").strip() or "https://ntfy.sh",
+                             topic=f.get("ntfy_topic", "").strip(),
+                             token=keep(f.get("ntfy_token", "").strip(), n["ntfy"]["token"]))
+            n["gotify"].update(enabled=f.get("gotify_on") == "on", url=f.get("gotify_url", "").strip(),
+                               token=keep(f.get("gotify_token", "").strip(), n["gotify"]["token"]))
+            n["email"].update(enabled=f.get("mail_on") == "on", host=f.get("mail_host", "").strip(),
+                              port=int(f.get("mail_port") or 587), security=f.get("mail_sec", "starttls"),
+                              user=f.get("mail_user", "").strip(), **{"from": f.get("mail_from", "").strip()},
+                              to=f.get("mail_to", "").strip(),
+                              password=keep(f.get("mail_pass", ""), n["email"]["password"]))
+            c["security"]["behind_proxy"] = f.get("behind_proxy") == "on"
             c["nd_playlists"].update(enabled=f.get("ndpl_enabled") == "on", public=f.get("ndpl_public") == "on",
                                      prefix=f.get("ndpl_prefix", ""))
             c["schedule"].update(enabled=f.get("sch_enabled") == "on", mode=f.get("sch_mode", "interval"),
@@ -215,6 +293,20 @@ def settings():
         flash("Paramètres enregistrés.", "ok")
         return redirect(url_for("settings"))
     return render_template("settings.html", page="set", c=c, mask=SECRET_MASK)
+
+
+@app.route("/api/settings/rules-preview", methods=["POST"])
+@login_required
+def api_rules_preview():
+    """Titres qui seraient ignores par ces regles (d'apres la derniere synchro)."""
+    from .engine import match_rule, parse_rules
+    rules = parse_rules((request.get_json(silent=True) or {}).get("rules", ""))
+    hits = []
+    for e in store.state.get("tracks", {}).values():
+        r = match_rule(rules, e.get("title"), e.get("artist"), e.get("album"))
+        if r:
+            hits.append(f"{e.get('artist')} - {e.get('title')}  ←  {r}")
+    return jsonify(ok=True, count=len(hits), hits=sorted(hits)[:100])
 
 
 @app.route("/export/tracks.csv")
@@ -242,7 +334,7 @@ def export_tracks():
     w.writerow(["Statut", "Artiste YouTube", "Titre YouTube", "Album YouTube", "Durée YouTube",
                 "Artiste Navidrome", "Titre Navidrome", "Album Navidrome", "Durée Navidrome",
                 "Fichier Navidrome", "Correction manuelle", "Avertissement", "Playlists", "Demandé à SoulSync le",
-                "Erreur", "Lien YouTube"])
+                "Téléchargement SoulSync", "Raison ignoré", "Erreur", "Lien YouTube"])
     for e in rows:
         w.writerow([lab.get(e.get("status"), e.get("status")), e.get("artist"), e.get("title"),
                     e.get("album") or "", mmss(e.get("duration")),
@@ -253,6 +345,9 @@ def export_tracks():
                     e.get("warn") or "",
                     ", ".join(names.get(p, "?") for p in e.get("playlists", [])),
                     dtf(e.get("requested_at")) if e.get("requested_at") else "",
+                    (DL_LABEL.get(e.get("dl_status"), "") + (f" — {e['dl_error']}" if e.get("dl_error") else ""))
+                    if e.get("status") == "requested" else "",
+                    e.get("ignore_reason") or "" if e.get("status") == "ignored" else "",
                     e.get("error") or "", f"https://music.youtube.com/watch?v={e.get('videoId')}"])
     fname = f"ytm-sync_{want}_{dt.datetime.now():%Y%m%d_%H%M}.csv"
     return Response("\ufeff" + buf.getvalue(), content_type="text/csv; charset=utf-8",
@@ -265,7 +360,10 @@ def export_tracks():
 def api_status():
     lr = store.state.get("last_run") or {}
     return jsonify(running=runner.running, progress=runner.progress, last_run=lr, version=VERSION,
-                   next_run=next_run_ts(store.cfg["schedule"], lr.get("start"), runner.started_at))
+                   next_run=next_run_ts(store.cfg["schedule"], lr.get("start"), runner.started_at),
+                   monitor=dict(store.state.get("monitor", {}), busy=monitor.busy,
+                                enabled=store.cfg["monitor"]["enabled"]),
+                   counts=status_counts())
 
 
 @app.route("/api/logs")
@@ -420,17 +518,36 @@ def api_ignore(vid):
     with store.lock:
         ign = store.cfg.setdefault("ignored", {})
         e = store.state["tracks"].get(vid)
+        to_remove = []
         if on:
-            ign[vid] = {"artist": (e or {}).get("artist"), "title": (e or {}).get("title"), "at": time.time()}
-            if e:
-                e.update(status="ignored", nd_id=None, warn=None, error=None)
+            key = (e or {}).get("key")
+            ign[vid] = {"artist": (e or {}).get("artist"), "title": (e or {}).get("title"), "key": key,
+                        "at": time.time()}
+            for x in store.state["tracks"].values():  # meme morceau sous une autre video : ignore aussi
+                if x["videoId"] == vid or (key and x.get("key") == key):
+                    if x.get("status") == "requested":
+                        to_remove.append(x["videoId"])
+                    x.update(status="ignored", nd_id=None, warn=None, error=None, requested_at=None,
+                             dl_status=None, dl_progress=None, dl_error=None,
+                             ignore_reason="ignoré manuellement" if x["videoId"] == vid
+                             else "même morceau qu'un titre ignoré")
         else:
             ign.pop(vid, None)
-            if e:
-                e.update(status="missing")  # reevalue a la prochaine synchro
+            key = (e or {}).get("key")
+            for x in store.state["tracks"].values():
+                if x["videoId"] == vid or (key and x.get("key") == key and x.get("status") == "ignored"):
+                    x.update(status="missing", ignore_reason=None)  # reevalue a la prochaine synchro
         store.save_cfg()
         store.save_state()
-    return jsonify(ok=True)
+    removed = 0
+    ss = soulsync_from(store.cfg)
+    if ss:
+        for v in to_remove:  # retire de la wishlist SoulSync ce qui avait deja ete demande
+            try:
+                removed += ss.delete_wishlist(f"ytm_{v}") < 300
+            except Exception:
+                pass
+    return jsonify(ok=True, removed=removed)
 
 
 @app.route("/api/tracks/rerequest", methods=["POST"])
@@ -448,8 +565,224 @@ def api_rerequest():
     return jsonify(ok=True)
 
 
+# ------------------------------------------------------------------ comptes Navidrome supplementaires
+@app.route("/api/accounts", methods=["POST"])
+@login_required
+def api_accounts():
+    j = request.get_json(silent=True) or {}
+    act = j.get("action")
+    accs = store.cfg.setdefault("nd_accounts", [])
+    if act == "add":
+        user, pw = (j.get("user") or "").strip(), j.get("password") or ""
+        if not user or not pw:
+            return jsonify(ok=False, msg="Utilisateur et mot de passe requis")
+        if user == store.cfg["navidrome"]["user"] or any(a["user"] == user for a in accs):
+            return jsonify(ok=False, msg="Ce compte existe déjà")
+        try:
+            Navidrome(store.cfg["navidrome"]["url"], user, pw).ping()
+        except Exception as ex:
+            return jsonify(ok=False, msg=f"Connexion refusée : {ex}")
+        accs.append({"id": uuid.uuid4().hex[:8], "user": user, "password": pw})
+    elif act == "delete":
+        store.cfg["nd_accounts"] = [a for a in accs if a["id"] != j.get("id")]
+        for p in store.cfg["playlists"]:
+            if p.get("nd_account") == j.get("id"):
+                p["nd_account"] = ""
+    store.save_cfg()
+    return jsonify(ok=True)
+
+
+# ------------------------------------------------------------------ notifications
+@app.route("/api/test/notify/<channel>", methods=["POST"])
+@login_required
+def api_test_notify(channel):
+    if channel not in notify.CHANNELS:
+        return jsonify(ok=False, msg="canal inconnu")
+    res = notify.send(store.cfg, "YTM Sync — test", f"Notification de test (v{VERSION}). Tout fonctionne !",
+                      only=channel)
+    err = res.get(channel)
+    return jsonify(ok=not err, msg=err or "Envoyée — enregistre les paramètres si ce n'est pas déjà fait")
+
+
+# ------------------------------------------------------------------ suivi SoulSync
+@app.route("/api/monitor/check", methods=["POST"])
+@login_required
+def api_monitor_check():
+    monitor.trigger()
+    return jsonify(ok=True)
+
+
+# ------------------------------------------------------------------ menage (titres telecharges devenus orphelins)
+def orphans():
+    tracks = store.state.get("tracks", {})
+    live_keys = {e.get("key") for e in tracks.values() if e.get("status") != "ignored"}
+    out = []
+    for vid, d in store.state.get("downloaded", {}).items():
+        e = tracks.get(vid)
+        if e and e.get("status") != "ignored":
+            continue
+        if not e and d.get("key") in live_keys:  # meme morceau toujours present via une autre video
+            continue
+        out.append(dict(d, videoId=vid, reason="ignoré depuis" if e else "retiré de toutes les playlists"))
+    return sorted(out, key=lambda x: ((x.get("artist") or "").lower(), x.get("title") or ""))
+
+
+@app.route("/cleanup")
+@login_required
+def cleanup():
+    return render_template("cleanup.html", page="cl", rows=orphans(),
+                           total=len(store.state.get("downloaded", {})))
+
+
+@app.route("/export/cleanup.csv")
+@login_required
+def export_cleanup():
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["Artiste", "Titre", "Album Navidrome", "Fichier Navidrome", "Arrivé le", "Raison", "Lien YouTube"])
+    for o in orphans():
+        w.writerow([o.get("nd_artist") or o.get("artist"), o.get("nd_title") or o.get("title"),
+                    o.get("nd_album") or "", o.get("nd_path") or "", dtf(o.get("at")), o["reason"],
+                    f"https://music.youtube.com/watch?v={o['videoId']}"])
+    return Response("\ufeff" + buf.getvalue(), content_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename=ytm-sync_menage_{dt.datetime.now():%Y%m%d_%H%M}.csv"})
+
+
+@app.route("/api/cleanup/forget", methods=["POST"])
+@login_required
+def api_cleanup_forget():
+    """Retire des titres de la liste de menage (le fichier n'est jamais touche)."""
+    ids = (request.get_json(silent=True) or {}).get("ids") or []
+    with store.lock:
+        for vid in ids:
+            store.state.get("downloaded", {}).pop(vid, None)
+        store.save_state()
+    return jsonify(ok=True)
+
+
+# ------------------------------------------------------------------ sauvegarde / restauration
+SECRET_PATHS = [("navidrome", "password"), ("soulsync", "api_key"), ("security", "api_key")]
+
+
+@app.route("/backup.json")
+@login_required
+def backup():
+    import copy
+    cfg = copy.deepcopy(store.cfg)
+    cfg.pop("auth", None)
+    with_secrets = request.args.get("secrets") == "1"
+    if not with_secrets:
+        for a, b in SECRET_PATHS:
+            cfg[a][b] = ""
+        for a in cfg.get("nd_accounts", []):
+            a["password"] = ""
+        cfg["notify"]["ntfy"]["token"] = cfg["notify"]["gotify"]["token"] = cfg["notify"]["email"]["password"] = ""
+    data = {"app": "ytm-sync", "version": VERSION, "exported_at": dt.datetime.now().isoformat(timespec="seconds"),
+            "with_secrets": with_secrets, "config": cfg,
+            "downloaded": store.state.get("downloaded", {})}
+    return Response(json.dumps(data, indent=1, ensure_ascii=False), content_type="application/json; charset=utf-8",
+                    headers={"Content-Disposition":
+                             f"attachment; filename=ytm-sync_sauvegarde_{dt.datetime.now():%Y%m%d_%H%M}.json"})
+
+
+@app.route("/restore", methods=["POST"])
+@login_required
+def restore():
+    f = request.files.get("file")
+    try:
+        data = json.load(f)
+        assert data.get("app") == "ytm-sync" and isinstance(data.get("config"), dict)
+    except Exception:
+        flash("Fichier de sauvegarde invalide.", "err")
+        return redirect(url_for("settings") + "#backup")
+    new = data["config"]
+    new.pop("auth", None)
+    with store.lock:
+        old = store.cfg
+        # secrets vides dans la sauvegarde : on garde ceux actuellement configures
+        for a, b in SECRET_PATHS:
+            if not (new.get(a) or {}).get(b):
+                new.setdefault(a, {})[b] = old.get(a, {}).get(b, "")
+        for ch, key in (("ntfy", "token"), ("gotify", "token"), ("email", "password")):
+            if not new.get("notify", {}).get(ch, {}).get(key):
+                new.setdefault("notify", {}).setdefault(ch, {})[key] = old["notify"][ch][key]
+        olda = {a["user"]: a["password"] for a in old.get("nd_accounts", [])}
+        for a in new.get("nd_accounts", []):
+            a["password"] = a.get("password") or olda.get(a["user"], "")
+        from .store import DEFAULT_CFG, _merge
+        merged = _merge(new, DEFAULT_CFG)
+        merged["auth"] = old["auth"]
+        store.cfg.clear()
+        store.cfg.update(merged)
+        store.save_cfg()
+        if request.form.get("with_history") == "on" and isinstance(data.get("downloaded"), dict):
+            store.state.setdefault("downloaded", {}).update(data["downloaded"])
+            store.save_state()
+    flash(f"Sauvegarde du {data.get('exported_at', '?')} restaurée ({len(merged['playlists'])} playlists, "
+          f"{len(merged['ignored'])} ignorés, {len(merged['overrides'])} corrections).", "ok")
+    return redirect(url_for("settings"))
+
+
+# ------------------------------------------------------------------ API externe (Home Assistant)
+@app.route("/api/apikey", methods=["POST"])
+@login_required
+def api_apikey():
+    act = (request.get_json(silent=True) or {}).get("action")
+    store.cfg["security"]["api_key"] = secrets.token_urlsafe(32) if act == "generate" else ""
+    store.save_cfg()
+    return jsonify(ok=True, key=store.cfg["security"]["api_key"])
+
+
+def ext_auth(f):
+    @functools.wraps(f)
+    def wrap(*a, **kw):
+        key = store.cfg["security"].get("api_key")
+        sent = request.headers.get("X-API-Key") or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        if not key or not sent or not hmac.compare_digest(sent, key):
+            return jsonify(ok=False, error="clé API invalide"), 401
+        return f(*a, **kw)
+    return wrap
+
+
+def status_counts():
+    c = collections.Counter(e.get("status") for e in store.state.get("tracks", {}).values())
+    d = collections.Counter(e.get("dl_status") for e in store.state.get("tracks", {}).values()
+                            if e.get("status") == "requested")
+    return {"present": c["present"], "missing": c["missing"], "requested": c["requested"],
+            "ignored": c["ignored"], "error": c["error"], "dl_failed": d["failed"], "dl_queued": d["queued"], "dl_done": d["completed"] + d["gone"],
+            "dl_active": d["pending"] + d["searching"] + d["downloading"], "orphans": len(orphans())}
+
+
+@app.route("/api/ext/status")
+@ext_auth
+def ext_status():
+    lr = store.state.get("last_run") or {}
+    nxt = next_run_ts(store.cfg["schedule"], lr.get("start"), runner.started_at)
+    return jsonify(ok=True, version=VERSION, running=runner.running, progress=runner.progress,
+                   state="en cours" if runner.running else "au repos",
+                   last_run={k: lr.get(k) for k in ("start", "end", "status", "trigger", "total", "present",
+                                                    "missing", "sent", "errors", "dry")},
+                   last_run_iso=dt.datetime.fromtimestamp(lr["start"]).astimezone().isoformat() if lr.get("start") else None,
+                   next_run_iso=dt.datetime.fromtimestamp(nxt).astimezone().isoformat() if nxt else None,
+                   counts=status_counts())
+
+
+@app.route("/api/ext/sync", methods=["POST"])
+@ext_auth
+def ext_sync():
+    j = request.get_json(silent=True) or {}
+    dry = j.get("dry", request.args.get("dry"))
+    dry = None if dry is None else str(dry).lower() in ("1", "true", "yes", "oui")
+    only = [j["playlist"]] if j.get("playlist") else None
+    ok = runner.start(trigger="Home Assistant", dry=dry, only=only)
+    return jsonify(ok=ok, error=None if ok else "Une synchro est déjà en cours"), (200 if ok else 409)
+
+
 def main():
     threading.Thread(target=scheduler_loop, args=(store, runner), daemon=True).start()
+    threading.Thread(target=monitor.loop, daemon=True).start()
     port = int(os.environ.get("WEBUI_PORT", "8095"))
     print(f"YTM Sync v{VERSION} — interface web sur le port {port}", flush=True)
     serve(app, host="0.0.0.0", port=port, threads=8)

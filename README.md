@@ -1,4 +1,4 @@
-# YTM Sync — v2.0.0
+# YTM Sync — v3.0.0
 
 YouTube Music → Navidrome → SoulSync, avec interface web.
 
@@ -7,6 +7,11 @@ YouTube Music → Navidrome → SoulSync, avec interface web.
 - Crée / met à jour une playlist Navidrome miroir par playlist YouTube.
 - Envoie les titres manquants dans la wishlist SoulSync et lance leur téléchargement.
 - Planification, simulation, journal en direct, historique, suivi des titres.
+- Suivi des téléchargements SoulSync par titre, scan Navidrome et resynchro automatiques.
+- Notifications ntfy / Gotify / e-mail.
+- Bibliothèque Navidrome en cache, règles d'exclusion, liens manuels, titres ignorés.
+- Playlists par compte Navidrome, page Ménage (rien n'est jamais supprimé), sauvegarde / restauration.
+- Sécurité : CSRF, blocage après 5 échecs de connexion ; API pour Home Assistant (`/api/ext/status`, `/api/ext/sync`).
 
 Toute la configuration se fait dans l'interface web (stockée dans `/config`).
 Seules variables Docker : `TZ` (et `WEBUI_PORT`, 8095 par défaut).

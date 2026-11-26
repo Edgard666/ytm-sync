@@ -13,6 +13,8 @@
   <div class="card"><h2>Dernière synchro</h2><div class="kpi" id="lrKpi">—</div><div class="mut" id="lrTxt"></div></div>
   <div class="card"><h2>Prochaine synchro</h2><div class="kpi" id="next" style="font-size:20px">—</div>
     <div class="mut">{% if cfg.schedule.enabled %}{% if cfg.schedule.mode=='daily' %}Tous les jours à {{ cfg.schedule.daily_time }}{% else %}Toutes les {{ cfg.schedule.interval_hours }} h{% endif %}{% else %}Planification désactivée{% endif %}</div></div>
+  <div class="card"><div class="row"><h2 style="margin:0">Suivi SoulSync</h2><div class="sp"></div><button class="btn s" onclick="monCheck()" title="Vérifier maintenant">↻</button></div>
+    <div class="kpi" id="monKpi" style="margin-top:8px">—</div><div class="mut" id="monTxt"></div></div>
 </div>
 <div class="card"><div class="row"><h2 style="margin:0">Playlists</h2><div class="sp"></div><a href="/playlists" class="btn s">Gérer</a></div>
 <table><tr><th>YouTube</th><th>Navidrome</th><th>Présents</th><th>Manquants</th><th>Résultat</th><th>Dernière synchro</th></tr>
@@ -32,6 +34,7 @@
 {% endblock %}
 {% block js %}<script>
 let since=0, wasRunning=null;
+async function monCheck(){await api('/api/monitor/check',{});document.getElementById('monTxt').textContent='Vérification demandée…'}
 async function run(dry){const r=await api('/api/run',{dry});if(!r.ok)alert(r.error)}
 async function status(){const s=await api('/api/status');if(!s.version)return;
   document.getElementById('state').innerHTML=s.running?'<span class="badge b-info">En cours</span>':'<span class="badge b-ok">Au repos</span>';
@@ -41,10 +44,14 @@ async function status(){const s=await api('/api/status');if(!s.version)return;
   const l=s.last_run||{};document.getElementById('lrKpi').innerHTML=l.start?`${l.present||0}<small> / ${l.total||0} présents</small>`:'—';
   document.getElementById('lrTxt').textContent=l.start?`${fmt(l.start)} — ${l.status} — ${l.missing||0} manquants, ${l.sent||0} envoyés${l.dry?' (simulation)':''}`:'';
   document.getElementById('next').textContent=s.next_run?fmt(s.next_run):'—';
+  const m=s.monitor||{},c=s.counts||{};
+  document.getElementById('monKpi').innerHTML=`${c.requested||0}<small> demandés · ${c.dl_active||0} en cours · <a href="/tracks#dlfail">${c.dl_failed||0} échecs</a></small>`;
+  document.getElementById('monTxt').textContent=!m.enabled?'Suivi désactivé (Paramètres)':m.busy?'Vérification en cours…':
+    (m.last_error?'Erreur : '+m.last_error:'Dernière vérification : '+fmt(m.last_check))+(m.pending_scan?` — ${m.pending_scan} playlist(s) à compléter après les téléchargements`:'');
   if(wasRunning===true&&!s.running)setTimeout(()=>location.reload(),1500);wasRunning=s.running}
 async function logs(){const r=await api('/api/logs?since='+since);const box=document.getElementById('log');
   (r.lines||[]).forEach(l=>{since=l.n;const d=document.createElement('div');d.textContent=l.t;
-    if(/!!|ERREUR|\?\?/.test(l.t))d.className='e';else if(/\+\+/.test(l.t))d.className='a';else if(/###|===/.test(l.t))d.className='h';box.appendChild(d)});
+    if(/!!|ERREUR|\?\?/.test(l.t))d.className='e';else if(/\+\+/.test(l.t))d.className='a';else if(/###|===/.test(l.t))d.className='h';else if(/\[Suivi\]/.test(l.t))d.className='s';box.appendChild(d)});
   if(document.getElementById('autoscroll').checked)box.scrollTop=box.scrollHeight}
 async function loadDl(auto){const el=document.getElementById('dl');
   if(auto&&[...el.querySelectorAll('.th-box input')].some(i=>i.value))return; // ne pas effacer un filtre en cours

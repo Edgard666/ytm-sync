@@ -1,12 +1,13 @@
 {% extends "base.html" %}{% block body %}
 <h1>Paramètres</h1>
-<form method="post">
+<form method="post" id="sform">
 <div class="grid">
 <div class="card"><h2>Navidrome</h2>
   <label>URL</label><input type="text" name="nd_url" id="nd_url" value="{{ c.navidrome.url }}" placeholder="http://192.168.5.100:4533">
-  <label>Utilisateur (propriétaire des playlists miroirs)</label><input type="text" name="nd_user" id="nd_user" value="{{ c.navidrome.user }}">
+  <label>Utilisateur principal (recherche + playlists par défaut)</label><input type="text" name="nd_user" id="nd_user" value="{{ c.navidrome.user }}">
   <label>Mot de passe</label><input type="password" name="nd_pass" id="nd_pass" value="{{ mask if c.navidrome.password }}" autocomplete="new-password">
   <p><button type="button" class="btn s" onclick="test('navidrome')">Tester</button><span class="test-res" id="r_navidrome"></span></p>
+  <p class="mut"><small>Le scan automatique de la bibliothèque demande un compte <b>administrateur</b>.</small></p>
 </div>
 <div class="card"><h2>SoulSync</h2>
   <label>URL</label><input type="text" name="ss_url" id="ss_url" value="{{ c.soulsync.url }}" placeholder="http://192.168.5.100:8008">
@@ -17,12 +18,52 @@
 <div class="card"><h2>Synchronisation</h2>
   <label class="check"><input type="checkbox" name="dry_run" {{ 'checked' if c.sync.dry_run }}> Mode simulation par défaut (rien n'est envoyé ni modifié)</label>
   <label class="check"><input type="checkbox" name="trigger_process" {{ 'checked' if c.sync.trigger_process }}> Lancer le téléchargement SoulSync après ajout</label>
-  <label class="check"><input type="checkbox" name="scan_before" {{ 'checked' if c.sync.scan_before }}> Scanner la bibliothèque Navidrome avant chaque synchro (compte admin requis)</label>
+  <label class="check"><input type="checkbox" name="scan_before" {{ 'checked' if c.sync.scan_before }}> Scanner la bibliothèque Navidrome avant chaque synchro</label>
+  <label class="check"><input type="checkbox" name="library_cache" {{ 'checked' if c.sync.library_cache }}> Charger la bibliothèque en mémoire (beaucoup plus rapide)</label>
   <label>Ne pas redemander un même titre avant (jours)</label><input type="number" name="re_request_days" min="0" value="{{ c.sync.re_request_days }}">
   <label>Similarité minimale du titre (0,30 – 1)</label><input type="number" name="title_threshold" min="0.3" max="1" step="0.01" value="{{ c.sync.title_threshold }}">
   <label>Similarité minimale de l'artiste (0 – 1)</label><input type="number" name="artist_threshold" min="0" max="1" step="0.01" value="{{ c.sync.artist_threshold }}">
   <label>Signaler un écart de durée au-delà de (secondes, 0 = jamais)</label><input type="number" name="duration_tolerance" min="0" value="{{ c.sync.duration_tolerance }}">
   <label class="check"><input type="checkbox" name="strict_versions" {{ 'checked' if c.sync.strict_versions }}> Distinguer les versions (Live, Remix, Acoustique, Instrumentale)</label>
+</div>
+<div class="card"><h2>Règles d'exclusion</h2>
+  <p class="mut"><small>Une règle par ligne. Un mot seul porte sur le titre ; <code>artiste:</code>, <code>album:</code> ou <code>titre:</code> pour préciser. Les titres concernés sont ignorés automatiquement. <code>#</code> = commentaire.</small></p>
+  <textarea name="exclude_rules" id="rules" style="min-height:140px" placeholder="karaoke&#10;nightcore&#10;8d audio&#10;artiste: Kidz Bop&#10;album: Greatest Hits Live">{{ c.sync.exclude_rules }}</textarea>
+  <p><button type="button" class="btn s" onclick="previewRules()">Aperçu</button> <span class="mut" id="rulesRes"></span></p>
+  <div id="rulesList" class="mut" style="font-size:12px;max-height:160px;overflow:auto"></div>
+</div>
+<div class="card"><h2>Suivi des téléchargements</h2>
+  <label class="check"><input type="checkbox" name="mon_enabled" {{ 'checked' if c.monitor.enabled }}> Suivre les titres demandés à SoulSync</label>
+  <label>Vérifier toutes les (minutes)</label><input type="number" name="mon_interval" min="1" value="{{ c.monitor.interval_min }}">
+  <label class="check"><input type="checkbox" name="mon_scan" {{ 'checked' if c.monitor.auto_scan }}> Scanner Navidrome quand les téléchargements sont terminés</label>
+  <label class="check"><input type="checkbox" name="mon_resync" {{ 'checked' if c.monitor.resync_after }}> Puis resynchroniser les playlists concernées</label>
+</div>
+<div class="card"><h2>Notifications</h2>
+  <label>Après une synchro</label><select name="nt_on_sync">
+    {% for v, l in [('changes','Seulement s\'il y a du nouveau ou une erreur'),('errors','Seulement en cas d\'erreur'),('always','Toujours'),('never','Jamais')] %}<option value="{{ v }}" {{ 'selected' if c.notify.on_sync==v }}>{{ l }}</option>{% endfor %}</select>
+  <label class="check"><input type="checkbox" name="nt_dl_fail" {{ 'checked' if c.notify.on_dl_fail }}> Prévenir en cas d'échec de téléchargement</label>
+  <p class="mut"><small>Les simulations n'envoient jamais de notification.</small></p>
+  <details {{ 'open' if c.notify.ntfy.enabled }}><summary><b>ntfy</b></summary>
+    <label class="check"><input type="checkbox" name="ntfy_on" {{ 'checked' if c.notify.ntfy.enabled }}> Activé</label>
+    <label>Serveur</label><input type="text" name="ntfy_url" value="{{ c.notify.ntfy.url }}">
+    <label>Sujet (topic)</label><input type="text" name="ntfy_topic" value="{{ c.notify.ntfy.topic }}" placeholder="ytm-sync-cedric">
+    <label>Jeton (optionnel)</label><input type="password" name="ntfy_token" value="{{ mask if c.notify.ntfy.token }}" autocomplete="new-password">
+    <p><button type="button" class="btn s" onclick="testNotify('ntfy')">Envoyer un test</button><span class="test-res" id="r_ntfy"></span></p></details>
+  <details {{ 'open' if c.notify.gotify.enabled }}><summary><b>Gotify</b></summary>
+    <label class="check"><input type="checkbox" name="gotify_on" {{ 'checked' if c.notify.gotify.enabled }}> Activé</label>
+    <label>URL</label><input type="text" name="gotify_url" value="{{ c.notify.gotify.url }}" placeholder="http://192.168.5.100:8070">
+    <label>Jeton d'application</label><input type="password" name="gotify_token" value="{{ mask if c.notify.gotify.token }}" autocomplete="new-password">
+    <p><button type="button" class="btn s" onclick="testNotify('gotify')">Envoyer un test</button><span class="test-res" id="r_gotify"></span></p></details>
+  <details {{ 'open' if c.notify.email.enabled }}><summary><b>E-mail</b></summary>
+    <label class="check"><input type="checkbox" name="mail_on" {{ 'checked' if c.notify.email.enabled }}> Activé</label>
+    <label>Serveur SMTP</label><input type="text" name="mail_host" value="{{ c.notify.email.host }}" placeholder="mail.exemple.be">
+    <div class="row"><div style="flex:1"><label>Port</label><input type="number" name="mail_port" value="{{ c.notify.email.port }}"></div>
+      <div style="flex:1"><label>Sécurité</label><select name="mail_sec">{% for v,l in [('starttls','STARTTLS'),('ssl','SSL/TLS'),('none','Aucune')] %}<option value="{{ v }}" {{ 'selected' if c.notify.email.security==v }}>{{ l }}</option>{% endfor %}</select></div></div>
+    <label>Utilisateur</label><input type="text" name="mail_user" value="{{ c.notify.email.user }}">
+    <label>Mot de passe</label><input type="password" name="mail_pass" value="{{ mask if c.notify.email.password }}" autocomplete="new-password">
+    <label>Expéditeur (vide = utilisateur)</label><input type="text" name="mail_from" value="{{ c.notify.email['from'] }}">
+    <label>Destinataire</label><input type="text" name="mail_to" value="{{ c.notify.email.to }}">
+    <p><button type="button" class="btn s" onclick="testNotify('email')">Envoyer un test</button><span class="test-res" id="r_email"></span></p></details>
 </div>
 <div class="card"><h2>Playlists Navidrome miroirs</h2>
   <label class="check"><input type="checkbox" name="ndpl_enabled" {{ 'checked' if c.nd_playlists.enabled }}> Créer / mettre à jour les playlists Navidrome</label>
@@ -35,16 +76,99 @@
   <label>Intervalle (heures)</label><input type="number" name="sch_interval" min="0.25" step="0.25" value="{{ c.schedule.interval_hours }}">
   <label>Heure quotidienne</label><input type="time" name="sch_daily" value="{{ c.schedule.daily_time }}">
 </div>
-<div class="card"><h2>Interface</h2>
+<div class="card"><h2>Interface et sécurité</h2>
   <label>Nouveau mot de passe (laisser vide pour ne pas changer)</label><input type="password" name="new_password" autocomplete="new-password">
+  <label class="check"><input type="checkbox" name="behind_proxy" {{ 'checked' if c.security.behind_proxy }}> Accès via un reverse proxy (Zoraxy…) — utilise l'IP réelle du visiteur</label>
   <label>Nombre de journaux d'exécution conservés</label><input type="number" name="logs_keep" min="1" value="{{ c.logs_keep }}">
+  <p class="mut"><small>Après 5 mots de passe faux, l'adresse IP est bloquée 15 minutes.</small></p>
 </div>
 </div>
 <p><button class="btn p">Enregistrer les paramètres</button></p>
 </form>
+
+<div class="grid">
+<div class="card" id="accounts"><h2>Comptes Navidrome supplémentaires</h2>
+  <p class="mut"><small>Pour créer des playlists dans le compte d'un autre membre de la famille. Le compte se choisit ensuite playlist par playlist.</small></p>
+  <table><tr><th>Utilisateur</th><th></th></tr>
+  <tr><td>{{ c.navidrome.user or '—' }} <span class="badge b-info">principal</span></td><td></td></tr>
+  {% for a in c.nd_accounts %}<tr><td>{{ a.user }}</td><td><button class="btn s d" onclick="accDel('{{ a.id }}','{{ a.user }}')">Retirer</button></td></tr>{% endfor %}
+  </table>
+  <div class="row" style="align-items:flex-end;margin-top:10px">
+    <div style="flex:1"><label>Utilisateur</label><input type="text" id="acc_user"></div>
+    <div style="flex:1"><label>Mot de passe</label><input type="password" id="acc_pass" autocomplete="new-password"></div>
+    <button class="btn" onclick="accAdd()">Ajouter</button></div>
+  <span class="test-res" id="r_acc"></span>
+</div>
+
+<div class="card" id="api"><h2>API Home Assistant</h2>
+  {% if c.security.api_key %}
+  <label>Clé API</label><div class="row"><input type="text" id="apikey" value="{{ c.security.api_key }}" readonly style="flex:1;font-family:monospace">
+    <button class="btn s" onclick="navigator.clipboard.writeText(document.getElementById('apikey').value)">Copier</button></div>
+  <p><button class="btn s" onclick="apiKey('generate')">Régénérer</button> <button class="btn s d" onclick="apiKey('disable')">Désactiver l'API</button></p>
+  <details><summary>Exemple de configuration Home Assistant (configuration.yaml)</summary>
+<pre class="log" style="height:auto;max-height:340px" id="haYaml">{% raw %}rest:
+  - resource: __URL__/api/ext/status
+    headers:
+      X-API-Key: "__KEY__"
+    scan_interval: 300
+    sensor:
+      - name: "YTM Sync état"
+        value_template: "{{ value_json.state }}"
+      - name: "YTM Sync manquants"
+        value_template: "{{ value_json.counts.missing }}"
+      - name: "YTM Sync demandés"
+        value_template: "{{ value_json.counts.requested }}"
+      - name: "YTM Sync échecs de téléchargement"
+        value_template: "{{ value_json.counts.dl_failed }}"
+      - name: "YTM Sync dernière synchro"
+        value_template: "{{ value_json.last_run_iso }}"
+        device_class: timestamp
+
+rest_command:
+  ytm_sync_lancer:
+    url: __URL__/api/ext/sync
+    method: post
+    headers:
+      X-API-Key: "__KEY__"
+      Content-Type: application/json
+    payload: '{"dry": false}'{% endraw %}</pre></details>
+  <p class="mut"><small>Points d'accès : <code>GET /api/ext/status</code> et <code>POST /api/ext/sync</code> (en-tête <code>X-API-Key</code> ou <code>Authorization: Bearer</code>).</small></p>
+  {% else %}
+  <p class="mut">API désactivée.</p><p><button class="btn" onclick="apiKey('generate')">Générer une clé API</button></p>
+  {% endif %}
+</div>
+
+<div class="card" id="backup"><h2>Sauvegarde et restauration</h2>
+  <p class="mut"><small>Playlists, paramètres, liens manuels, titres ignorés, règles et historique du ménage. Le mot de passe de l'interface et la session YouTube ne sont jamais inclus.</small></p>
+  <p><a class="btn" href="/backup.json">Sauvegarder (sans mots de passe)</a>
+     <a class="btn" href="/backup.json?secrets=1" onclick="return confirm('Le fichier contiendra tes mots de passe et clés en clair. Continuer ?')">Sauvegarde complète</a></p>
+  <form method="post" action="/restore" enctype="multipart/form-data" onsubmit="return confirm('Remplacer la configuration actuelle par celle de la sauvegarde ?')">
+    <label>Restaurer depuis un fichier</label><input type="file" name="file" accept=".json,application/json" required>
+    <label class="check"><input type="checkbox" name="with_history" checked> Restaurer aussi l'historique du ménage</label>
+    <p class="mut"><small>Les mots de passe absents du fichier sont conservés tels qu'ils sont configurés actuellement.</small></p>
+    <button class="btn p">Restaurer</button></form>
+</div>
+</div>
 {% endblock %}
 {% block js %}<script>
-async function test(w){const el=document.getElementById('r_'+w);el.textContent='…';const v=id=>document.getElementById(id).value;
+const v=id=>document.getElementById(id).value;
+function res(id,r){document.getElementById(id).innerHTML=`<span class="badge ${r.ok?'b-ok':'b-err'}">${esc(r.msg)}</span>`}
+async function test(w){document.getElementById('r_'+w).textContent='…';
   const body=w==='navidrome'?{url:v('nd_url'),user:v('nd_user'),password:v('nd_pass')}:{url:v('ss_url'),api_key:v('ss_key'),profile_id:v('ss_profile')};
-  const r=await api('/api/test/'+w,body);el.innerHTML=`<span class="badge ${r.ok?'b-ok':'b-err'}">${esc(r.msg)}</span>`}
+  res('r_'+w,await api('/api/test/'+w,body))}
+async function saveForm(){const r=await fetch('/settings',{method:'POST',body:new FormData(document.getElementById('sform'))});return r.ok}
+async function testNotify(ch){document.getElementById('r_'+ch).textContent='enregistrement puis envoi…';
+  await saveForm();res('r_'+ch,await api('/api/test/notify/'+ch,{}))}
+async function previewRules(){const r=await api('/api/settings/rules-preview',{rules:v('rules')});
+  document.getElementById('rulesRes').textContent=`${r.count} titre(s) seraient ignorés (d'après la dernière synchro)`;
+  document.getElementById('rulesList').innerHTML=(r.hits||[]).map(h=>`<div>${esc(h)}</div>`).join('')}
+async function accAdd(){document.getElementById('r_acc').textContent='vérification…';
+  const r=await api('/api/accounts',{action:'add',user:v('acc_user'),password:v('acc_pass')});
+  if(r.ok)location.reload();else res('r_acc',r)}
+async function accDel(id,u){if(!confirm('Retirer le compte '+u+' ? Ses playlists reviendront au compte principal (celles déjà créées restent dans Navidrome).'))return;
+  await api('/api/accounts',{action:'delete',id});location.reload()}
+async function apiKey(a){if(a==='disable'&&!confirm('Désactiver l\'API ? Home Assistant ne pourra plus y accéder.'))return;
+  if(a==='generate'&&document.getElementById('apikey')&&!confirm('Régénérer la clé ? L\'ancienne cessera de fonctionner.'))return;
+  await api('/api/apikey',{action:a});location.reload()}
+const y=document.getElementById('haYaml');if(y)y.textContent=y.textContent.replaceAll('__URL__',location.origin).replaceAll('__KEY__',v('apikey'));
 </script>{% endblock %}

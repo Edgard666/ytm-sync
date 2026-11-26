@@ -4,16 +4,18 @@
 <form method="post" class="row" style="align-items:flex-end">
   <input type="hidden" name="action" value="add">
   <div style="flex:2;min-width:260px"><label>URL ou ID YouTube Music</label><input type="text" name="source" placeholder="https://music.youtube.com/playlist?list=PL…" required></div>
+  {% if cfg.nd_accounts %}<div style="min-width:150px"><label>Compte Navidrome</label><select name="nd_account"><option value="">{{ cfg.navidrome.user }} (principal)</option>{% for a in cfg.nd_accounts %}<option value="{{ a.id }}">{{ a.user }}</option>{% endfor %}</select></div>{% endif %}
   <div style="flex:1;min-width:180px"><label>Nom de la playlist Navidrome (optionnel)</label><input type="text" name="nd_name" placeholder="vide = {{ cfg.nd_playlists.prefix }}titre YouTube"></div>
   <button class="btn p">Ajouter</button>
   <a class="btn" href="/youtube#library">Importer depuis mon compte</a>
 </form></div>
 <div class="card"><table>
-<tr><th>Playlist YouTube</th><th>Nom Navidrome</th><th>Active</th><th>Dernier état</th><th></th></tr>
+<tr><th>Playlist YouTube</th><th>Nom Navidrome</th><th>Compte Navidrome</th><th>Active</th><th>Dernier état</th><th></th></tr>
 {% for p in cfg.playlists %}{% set s = st.playlists.get(p.id, {}) %}
 <tr>
 <td><form id="f{{ p.id }}" method="post"><input type="hidden" name="id" value="{{ p.id }}"></form><b>{{ s.title or '(jamais lue)' }}</b><br><a class="mut" href="https://music.youtube.com/playlist?list={{ pl_id(p.source) }}" target="_blank" rel="noopener">{{ pl_id(p.source) }}</a></td>
 <td><input form="f{{ p.id }}" type="text" name="nd_name" value="{{ p.nd_name }}" placeholder="{{ s.nd_name or (cfg.nd_playlists.prefix ~ 'titre YouTube') }}"></td>
+<td>{% if cfg.nd_accounts %}<select form="f{{ p.id }}" name="nd_account"><option value="">{{ cfg.navidrome.user }} (principal)</option>{% for a in cfg.nd_accounts %}<option value="{{ a.id }}" {{ 'selected' if p.nd_account == a.id }}>{{ a.user }}</option>{% endfor %}</select>{% else %}<span class="mut">{{ cfg.navidrome.user or '—' }}</span>{% endif %}</td>
 <td><input form="f{{ p.id }}" type="checkbox" name="enabled" {{ 'checked' if p.enabled }} style="width:18px;height:18px;accent-color:var(--acc)"></td>
 <td class="mut">{% if s.error %}<span class="badge b-err">erreur</span> {{ s.error[:80] }}{% elif s.last_sync %}{{ s.present }}/{{ s.total }} présents — {{ s.nd_result }}<br>{{ s.last_sync|dtf }}{% else %}—{% endif %}</td>
 <td style="white-space:nowrap">
@@ -22,7 +24,7 @@
   <button class="btn s p" type="button" onclick="runOne('{{ p.id }}',false)">Synchro</button>
   <button form="f{{ p.id }}" class="btn s d" name="action" value="delete" onclick="return confirm('Retirer cette playlist ?')">Retirer</button>
 </td></tr>
-{% else %}<tr><td colspan="5" class="mut">Aucune playlist surveillée pour l'instant.</td></tr>{% endfor %}
+{% else %}<tr><td colspan="6" class="mut">Aucune playlist surveillée pour l'instant.</td></tr>{% endfor %}
 </table>
 <div class="help">Les playlists Navidrome miroirs sont <b>écrasées</b> à chaque synchro (mêmes titres, même ordre que YouTube) : ne les modifie pas à la main. Renommer une playlist ici en crée une nouvelle dans Navidrome ; l'ancienne reste à supprimer dans Navidrome.</div>
 </div>
