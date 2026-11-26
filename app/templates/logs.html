@@ -1,0 +1,35 @@
+{% extends "base.html" %}{% block body %}
+<div class="row" style="margin-bottom:12px"><h1 style="margin:0">Journal</h1><div class="sp"></div>
+{% if name %}<a class="btn" href="/logs/{{ name }}?raw=1">Télécharger</a> <a class="btn" href="/logs">Tous les journaux</a>{% endif %}</div>
+{% if not name %}<div class="card"><h2>Corrections manuelles</h2>
+<p class="mut"><small>Tout ce que tu as ignoré, lié, délié ou redemandé, avec possibilité d'annuler.</small></p>
+<div id="audit" class="mut">Chargement…</div></div>{% endif %}
+{% if name %}
+<div class="card"><div class="row"><h2 style="margin:0">{{ name }}</h2><div class="sp"></div>
+<input type="text" id="lq" placeholder="Filtrer les lignes…" style="max-width:260px"></div>
+<div class="log" id="lv" style="height:65vh;margin-top:10px"></div></div>
+<script nonce="{{ csp_nonce() }}" id="lraw" type="application/json">{{ content|tojson }}</script>
+{% endif %}
+<div class="card"><table><tr><th>Journal</th><th>Déclencheur</th><th>Mode</th><th>Titres</th><th>Envoyés</th><th>Statut</th></tr>
+{% for f in files %}{% set h = runs.get(f, {}) %}
+<tr><td><a href="/logs/{{ f }}">{{ f[4:8] }}-{{ f[8:10] }}-{{ f[10:12] }} {{ f[13:15] }}:{{ f[15:17] }}:{{ f[17:19] }}</a>{% if f == name %} <span class="badge b-info">affiché</span>{% endif %}</td>
+<td>{{ h.trigger or '—' }}</td><td>{{ ('simulation' if h.dry else 'réel') if h else '—' }}</td><td>{{ h.total if h else '—' }}</td><td>{{ h.sent if h else '—' }}</td>
+<td>{% if h %}<span class="badge {{ 'b-ok' if h.status=='ok' else 'b-err' }}">{{ h.status }}</span>{% else %}—{% endif %}</td></tr>
+{% else %}<tr><td colspan="6" class="mut">Aucun journal.</td></tr>{% endfor %}</table></div>
+{% endblock %}
+{% block js %}{% if not name %}<script nonce="{{ csp_nonce() }}">
+async function loadAudit(){const r=await api('/api/audit');const el=document.getElementById('audit');
+  if(!r.rows.length){el.textContent='Aucune correction pour l\'instant.';return}
+  el.innerHTML='<table><tr><th>Date</th><th>Action</th><th>Détail</th><th></th></tr>'+r.rows.map(a=>
+    `<tr${a.undone?' style="opacity:.5"':''}><td>${fmt(a.at)}</td><td><span class="badge b-ign">${esc(a.label)}</span></td><td>${esc(a.detail)}${a.undone?' <small class="mut">(annulé)</small>':''}</td>
+     <td>${a.can_undo?`<button class="btn s" data-u="${esc(a.id)}">Annuler</button>`:''}</td></tr>`).join('')+'</table>';
+  el.querySelectorAll('[data-u]').forEach(b=>b.onclick=async()=>{if(!confirm('Annuler cette correction ?'))return;
+    const x=await api('/api/audit/'+b.dataset.u+'/undo',{});if(!x.ok)alert(x.msg);loadAudit()})}
+loadAudit();
+</script>{% endif %}{% if name %}<script nonce="{{ csp_nonce() }}">
+const L=JSON.parse(document.getElementById('lraw').textContent).split('\n');
+function draw(){const q=document.getElementById('lq').value.toLowerCase(),box=document.getElementById('lv');box.innerHTML='';
+  L.filter(l=>!q||l.toLowerCase().includes(q)).forEach(l=>{const d=document.createElement('div');d.textContent=l;
+    if(/!!|ERREUR|\?\?|\?!/.test(l))d.className='e';else if(/\+\+/.test(l))d.className='a';else if(/###|===/.test(l))d.className='h';else if(/\[Suivi\]/.test(l))d.className='s';box.appendChild(d)})}
+document.getElementById('lq').oninput=draw;draw();
+</script>{% endif %}{% endblock %}

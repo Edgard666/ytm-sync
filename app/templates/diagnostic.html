@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block body %}
+<div class="row" style="margin-bottom:12px"><h1 style="margin:0">Diagnostic</h1><div class="sp"></div>
+<button class="btn p" data-act="run">Relancer les vérifications</button></div>
+<div class="help">Vérifie toutes les connexions et réglages d'un coup. Utile si quelque chose ne fonctionne pas : copie cette page si tu dois demander de l'aide (aucun mot de passe n'y figure).</div>
+<div id="diag" class="mut">Vérifications en cours…</div>
+{% endblock %}
+{% block js %}<script nonce="{{ csp_nonce() }}">
+const IC={ok:['✓','b-ok'],warn:['!','b-warn'],err:['✕','b-err'],info:['i','b-ign']};
+async function run(){const el=document.getElementById('diag');el.textContent='Vérifications en cours…';
+  const r=await api('/api/diagnostic');if(!r.ok){el.textContent=r.msg||'Erreur';return}
+  const secs=[...new Set(r.checks.map(c=>c.section))];el.innerHTML='';
+  const n={err:r.checks.filter(c=>c.status==='err').length,warn:r.checks.filter(c=>c.status==='warn').length};
+  const sum=document.createElement('div');sum.className='card';
+  sum.innerHTML=n.err?`<span class="badge b-err">${n.err} problème(s)</span> ${n.warn?`<span class="badge b-warn">${n.warn} avertissement(s)</span>`:''}`:
+    (n.warn?`<span class="badge b-warn">${n.warn} avertissement(s)</span> — rien de bloquant`:'<span class="badge b-ok">Tout est en ordre</span>');
+  el.appendChild(sum);
+  secs.forEach(sname=>{const card=document.createElement('div');card.className='card';
+    card.innerHTML=`<h2>${esc(sname)}</h2><table data-noenhance>`+r.checks.filter(c=>c.section===sname).map(c=>
+      `<tr><td style="width:34px"><span class="badge ${IC[c.status][1]}">${IC[c.status][0]}</span></td><td style="width:240px"><b>${esc(c.item)}</b></td><td class="mut">${esc(c.detail)}</td></tr>`).join('')+'</table>';
+    el.appendChild(card)})}
+run();
+</script>{% endblock %}

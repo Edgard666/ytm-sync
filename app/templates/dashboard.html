@@ -1,39 +1,52 @@
 {% extends "base.html" %}{% block body %}
 <div class="row" style="margin-bottom:16px">
   <h1 style="margin:0">Tableau de bord</h1><div class="sp"></div>
-  <button class="btn" id="bDry" onclick="run(true)">Simulation</button>
-  <button class="btn p" id="bRun" onclick="run(false)">Synchroniser maintenant</button>
-  <button class="btn d" id="bStop" onclick="api('/api/stop',{})" disabled>Arrêter</button>
+  <button class="btn" id="bDry" data-act="run" data-args='[true]'>Simulation</button>
+  <button class="btn p" id="bRun" data-act="run" data-args='[false]'>Synchroniser maintenant</button>
+  <button class="btn d" id="bStop" data-act="stopRun" disabled>Arrêter</button>
 </div>
 {% if not cfg.navidrome.url %}<div class="flash err">Navidrome n'est pas configuré : va dans <a href="/settings">Paramètres</a>.</div>{% endif %}
 {% if not cfg.playlists %}<div class="flash err">Aucune playlist surveillée : ajoute-en dans <a href="/playlists">Playlists</a>.</div>{% endif %}
+{% for m in recovered %}<div class="flash err">⚠ {{ m }}</div>{% endfor %}
+{% if ytm_auth_error %}<div class="flash err">Session YouTube Music expirée ou invalide ({{ ytm_auth_error }}) : les playlists privées ne sont plus lues. <a href="/youtube">Reconnecter le compte</a>.</div>{% endif %}
+{% if steps %}<div class="card" id="wizard"><div class="row"><h2 style="margin:0">Pour bien démarrer</h2><div class="sp"></div>
+<button class="btn s" data-act="hideWizard">Masquer</button></div>
+<ol class="steps">{% for label, ok, url in steps %}<li class="{{ 'done' if ok }}"><span class="chk">{{ '✓' if ok else loop.index }}</span> <a href="{{ url }}">{{ label }}</a></li>{% endfor %}</ol></div>{% endif %}
 {% if cfg.sync.dry_run %}<div class="flash ok">Mode simulation actif par défaut (rien n'est envoyé ni modifié). Désactivable dans Paramètres.</div>{% endif %}
 <div class="grid">
   <div class="card"><h2>État</h2><div class="kpi" id="state">—</div><div class="mut" id="prog"></div><div class="bar"><i id="pbar"></i></div></div>
   <div class="card"><h2>Dernière synchro</h2><div class="kpi" id="lrKpi">—</div><div class="mut" id="lrTxt"></div></div>
   <div class="card"><h2>Prochaine synchro</h2><div class="kpi" id="next" style="font-size:20px">—</div>
     <div class="mut">{% if cfg.schedule.enabled %}{% if cfg.schedule.mode=='daily' %}Tous les jours à {{ cfg.schedule.daily_time }}{% else %}Toutes les {{ cfg.schedule.interval_hours }} h{% endif %}{% else %}Planification désactivée{% endif %}</div></div>
-  <div class="card"><div class="row"><h2 style="margin:0">Suivi SoulSync</h2><div class="sp"></div><button class="btn s" onclick="monCheck()" title="Vérifier maintenant">↻</button></div>
+  <div class="card"><div class="row"><h2 style="margin:0">Suivi SoulSync</h2><div class="sp"></div><button class="btn s" data-act="monCheck" title="Vérifier maintenant">↻</button></div>
     <div class="kpi" id="monKpi" style="margin-top:8px">—</div><div class="mut" id="monTxt"></div></div>
 </div>
+<div class="card" id="covCard" style="display:none"><div class="row"><h2 style="margin:0">Couverture de la bibliothèque</h2><div class="sp"></div>
+  <span class="kpi" id="covNow" style="font-size:22px"></span></div>
+  <p class="mut" style="margin:4px 0 8px"><small>Part des titres de tes playlists (hors ignorés) présents dans Navidrome, un point par jour de synchro réelle.</small></p>
+  <div id="covChart" style="position:relative"></div>
+  <details style="margin-top:8px"><summary class="mut">Voir les valeurs</summary><div id="covTable"></div></details></div>
 <div class="card"><div class="row"><h2 style="margin:0">Playlists</h2><div class="sp"></div><a href="/playlists" class="btn s">Gérer</a></div>
 <table><tr><th>YouTube</th><th>Navidrome</th><th>Présents</th><th>Manquants</th><th>Résultat</th><th>Dernière synchro</th></tr>
 {% for p in cfg.playlists %}{% set s = st.playlists.get(p.id, {}) %}
 <tr><td>{{ s.title or p.source }}{% if not p.enabled %} <span class="badge b-warn">désactivée</span>{% endif %}</td><td>{{ s.nd_name or p.nd_name or '—' }}</td>
 <td>{{ s.present if s.present is defined else '—' }}</td><td>{{ s.missing if s.missing is defined else '—' }}{% if s.ignored %} <span class="mut">(+{{ s.ignored }} ignorés)</span>{% endif %}</td>
-<td>{% if s.error %}<span class="badge b-err">{{ s.error[:60] }}</span>{% else %}{{ s.nd_result or '—' }}{% endif %}</td><td>{{ s.last_sync|dtf }}</td></tr>
+<td>{% if s.error %}<span class="badge b-err" title="{{ s.error }}">{{ s.error[:60] }}{{ '…' if s.error|length > 60 }}</span>{% else %}{{ s.nd_result or '—' }}{% endif %}</td><td>{{ s.last_sync|dtf }}</td></tr>
 {% else %}<tr><td colspan="6" class="mut">Aucune playlist.</td></tr>{% endfor %}</table></div>
-<div class="card"><div class="row"><h2 style="margin:0">Téléchargements SoulSync</h2><div class="sp"></div><button class="btn s" onclick="loadDl()">Actualiser</button></div>
+<div class="card"><div class="row"><h2 style="margin:0">Téléchargements SoulSync</h2><div class="sp"></div><button class="btn s" data-act="loadDl">Actualiser</button></div>
 <div id="dl" class="mut">Chargement…</div></div>
 <div class="card"><div class="row"><h2 style="margin:0">Journal en direct</h2><div class="sp"></div><label class="check" style="margin:0"><input type="checkbox" id="autoscroll" checked> défilement auto</label></div>
 <div class="log" id="log"></div></div>
-<div class="card"><h2>Historique</h2><table><tr><th>Début</th><th>Déclencheur</th><th>Mode</th><th>Titres</th><th>Présents</th><th>Manquants</th><th>Envoyés</th><th>Statut</th></tr>
-{% for h in st.history[:15] %}<tr><td>{{ h.start|dtf }}</td><td>{{ h.trigger }}</td><td>{{ 'simulation' if h.dry else 'réel' }}</td><td>{{ h.total or 0 }}</td><td>{{ h.present or 0 }}</td><td>{{ h.missing or 0 }}</td><td>{{ h.sent or 0 }}</td>
+<div class="card"><div class="row"><h2 style="margin:0">Historique</h2><div class="sp"></div><a class="btn s" href="/logs">Tous les journaux</a></div>
+<table><tr><th>Début</th><th>Déclencheur</th><th>Mode</th><th>Titres</th><th>Présents</th><th>Manquants</th><th>Envoyés</th><th>Statut</th></tr>
+{% for h in st.history[:15] %}<tr><td>{% if h.log %}<a href="/logs/{{ h.log }}" title="Voir le journal">{{ h.start|dtf }}</a>{% else %}{{ h.start|dtf }}{% endif %}</td><td>{{ h.trigger }}</td><td>{{ 'simulation' if h.dry else 'réel' }}</td><td>{{ h.total or 0 }}</td><td>{{ h.present or 0 }}</td><td>{{ h.missing or 0 }}</td><td>{{ h.sent or 0 }}</td>
 <td><span class="badge {{ 'b-ok' if h.status=='ok' else 'b-err' }}">{{ h.status }}</span> <span class="mut">{{ (h.message or '')[:80] }}</span></td></tr>
 {% else %}<tr><td colspan="8" class="mut">Aucune exécution.</td></tr>{% endfor %}</table></div>
 {% endblock %}
-{% block js %}<script>
+{% block js %}<script nonce="{{ csp_nonce() }}">
 let since=0, wasRunning=null;
+async function stopRun(){await api('/api/stop',{})}
+async function hideWizard(){await api('/api/wizard/hide',{});document.getElementById('wizard').remove()}
 async function monCheck(){await api('/api/monitor/check',{});document.getElementById('monTxt').textContent='Vérification demandée…'}
 async function run(dry){const r=await api('/api/run',{dry});if(!r.ok)alert(r.error)}
 async function status(){const s=await api('/api/status');if(!s.version)return;
@@ -59,5 +72,30 @@ async function loadDl(auto){const el=document.getElementById('dl');
   if(!r.ok){el.textContent=r.msg;return}if(!r.downloads.length){el.textContent='Aucun téléchargement en cours.';return}
   const cls={completed:'b-ok',failed:'b-err',downloading:'b-info'};
   el.innerHTML='<table><tr><th>Artiste</th><th>Titre</th><th>Statut</th><th>Progression</th></tr>'+r.downloads.slice(0,50).map(d=>`<tr><td>${esc(d.artist_name)}</td><td>${esc(d.track_name)}</td><td><span class="badge ${cls[d.status]||'b-warn'}">${esc(d.status)}</span></td><td>${d.progress??''}%</td></tr>`).join('')+'</table>'}
-status();logs();loadDl();setInterval(status,2000);setInterval(logs,1500);setInterval(()=>loadDl(true),30000);
+async function coverage(){const r=await api('/api/coverage');const P=(r.points||[]).filter(p=>p.total>0);if(!P.length)return;
+  document.getElementById('covCard').style.display='';const pct=p=>Math.round(p.present/p.total*1000)/10;
+  const last=P[P.length-1];document.getElementById('covNow').innerHTML=`${pct(last)} %<small class="mut" style="font-size:13px;font-weight:400"> · ${last.present}/${last.total}</small>`;
+  const dfmt=d=>new Date(d+'T12:00:00').toLocaleDateString('fr-BE',{day:'2-digit',month:'short'});
+  document.getElementById('covTable').innerHTML='<table><tr><th>Jour</th><th>Couverture</th><th>Présents</th><th>Titres</th></tr>'+P.slice().reverse().map(p=>`<tr><td>${esc(p.d)}</td><td>${pct(p)} %</td><td>${p.present}</td><td>${p.total}</td></tr>`).join('')+'</table>';
+  if(P.length<2){document.getElementById('covChart').innerHTML='<p class="mut"><small>Le graphique apparaîtra après une deuxième journée de synchro.</small></p>';return}
+  const box=document.getElementById('covChart'),W=box.clientWidth||800,H=180,L=40,R=12,T=10,B=24;
+  const x=i=>L+(W-L-R)*i/(P.length-1),y=v=>T+(H-T-B)*(1-v/100);
+  const pts=P.map((p,i)=>`${x(i).toFixed(1)},${y(pct(p)).toFixed(1)}`).join(' ');
+  let g='';[0,50,100].forEach(v=>g+=`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${L-6}" y="${y(v)+4}" text-anchor="end" fill="var(--mut)" font-size="11">${v} %</text>`);
+  g+=`<text x="${L}" y="${H-6}" fill="var(--mut)" font-size="11">${dfmt(P[0].d)}</text><text x="${W-R}" y="${H-6}" text-anchor="end" fill="var(--mut)" font-size="11">${dfmt(last.d)}</text>`;
+  box.innerHTML=`<svg width="${W}" height="${H}" role="img" aria-label="Couverture de la bibliothèque dans le temps" style="display:block">${g}
+    <polyline points="${pts}" fill="none" stroke="var(--acc)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(P.length-1)}" cy="${y(pct(last))}" r="4" fill="var(--acc)" stroke="var(--panel)" stroke-width="2"/>
+    <line id="covX" y1="${T}" y2="${H-B}" stroke="var(--mut)" stroke-width="1" visibility="hidden"/>
+    <circle id="covDot" r="4" fill="var(--acc)" stroke="var(--panel)" stroke-width="2" visibility="hidden"/>
+    <rect x="${L}" y="0" width="${W-L-R}" height="${H}" fill="transparent" id="covHit"/></svg>
+    <div id="covTip" style="position:absolute;display:none;pointer-events:none;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:12px;white-space:nowrap"></div>`;
+  const hit=document.getElementById('covHit'),cx=document.getElementById('covX'),cd=document.getElementById('covDot'),tip=document.getElementById('covTip');
+  const show=i=>{const p=P[i],px=x(i),py=y(pct(p));cx.setAttribute('x1',px);cx.setAttribute('x2',px);cd.setAttribute('cx',px);cd.setAttribute('cy',py);
+    cx.setAttribute('visibility','visible');cd.setAttribute('visibility','visible');tip.style.display='block';
+    tip.textContent='';const b=document.createElement('b');b.textContent=dfmt(p.d);tip.append(b,` — ${pct(p)} % (${p.present}/${p.total})`);
+    tip.style.left=Math.min(px+10,W-tip.offsetWidth-4)+'px';tip.style.top=Math.max(0,py-36)+'px'};
+  hit.addEventListener('pointermove',ev=>{const r=hit.getBoundingClientRect();show(Math.round((ev.clientX-r.left)/r.width*(P.length-1)))});
+  hit.addEventListener('pointerleave',()=>{cx.setAttribute('visibility','hidden');cd.setAttribute('visibility','hidden');tip.style.display='none'})}
+status();logs();loadDl();coverage();setInterval(status,2000);setInterval(logs,1500);setInterval(()=>loadDl(true),30000);
 </script>{% endblock %}

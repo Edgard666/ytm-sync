@@ -1,31 +1,52 @@
 <!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>YTM Sync v{{ version }}</title><meta name="csrf" content="{{ csrf_token() }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}"></head>
+<title>YTM Sync v{{ version }}</title>
+<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#171c25">
+<link rel="icon" href="{{ url_for('static', filename='icon-192.png') }}"><link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
+<script nonce="{{ csp_nonce() }}">try{if(localStorage.getItem('theme')==='light')document.documentElement.dataset.theme='light'}catch(e){}</script><meta name="csrf" content="{{ csrf_token() }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}"></head>
 <body>
 <header>
+  <button class="btn s menubtn" id="menuBtn" type="button" aria-label="Menu">☰</button>
   <a class="brand" href="/"><i class="dot"></i><span>YTM Sync</span></a>
   <nav>
     <a href="/" class="{{ 'on' if page=='dash' }}">Tableau de bord</a>
     <a href="/playlists" class="{{ 'on' if page=='pl' }}">Playlists</a>
     <a href="/tracks" class="{{ 'on' if page=='tr' }}">Titres</a>
     <a href="/cleanup" class="{{ 'on' if page=='cl' }}">Ménage</a>
+    <a href="/logs" class="{{ 'on' if page=='logs' }}">Journal</a>
     <a href="/youtube" class="{{ 'on' if page=='yt' }}">Compte YouTube</a>
     <a href="/settings" class="{{ 'on' if page=='set' }}">Paramètres</a>
+    <a href="/diagnostic" class="{{ 'on' if page=='diag' }}">Diagnostic</a>
   </nav>
-  <a href="/logout" class="mut">Déconnexion</a>
+  <button class="btn s" id="themeBtn" title="Thème clair / sombre" type="button" aria-label="Changer de thème"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
+  <form method="post" action="/logout" style="margin:0"><button class="linkbtn mut" type="submit">Déconnexion</button></form>
 </header>
 <main>
 {% with msgs = get_flashed_messages(with_categories=true) %}{% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}{% endwith %}
 {% block body %}{% endblock %}
 </main>
 <footer>YTM Sync v{{ version }} — YouTube Music → Navidrome → SoulSync</footer>
-<script>
+<script nonce="{{ csp_nonce() }}">
 const CSRF=document.querySelector('meta[name=csrf]').content;
+// Gestionnaire central (aucun JavaScript dans les attributs HTML : compatible avec la CSP)
+//   data-act="fonction" data-args='[...]'  -> appelle window.fonction(...args)
+//   data-confirm="question"                 -> demande confirmation avant le clic / l'envoi
+document.addEventListener('click',ev=>{const el=ev.target.closest('[data-act],[data-confirm]');if(!el||el.tagName==='FORM')return;
+  if(el.dataset.confirm&&!confirm(el.dataset.confirm)){ev.preventDefault();ev.stopPropagation();return}
+  if(el.dataset.act){const fn=window[el.dataset.act];if(typeof fn!=='function')return;ev.preventDefault();
+    let a=[];try{a=el.dataset.args?JSON.parse(el.dataset.args):[]}catch(e){}fn(...a)}});
+document.addEventListener('submit',ev=>{const f=ev.target;if(f.dataset&&f.dataset.confirm&&!confirm(f.dataset.confirm)){ev.preventDefault();return}
+  if(location.hash&&f.method==='post'&&!f.getAttribute('action'))f.setAttribute('action',location.pathname+location.hash)});
+// menu repliable sur telephone
+document.getElementById('menuBtn').onclick=()=>document.body.classList.toggle('menu-open');
+document.getElementById('themeBtn').onclick=()=>{const l=document.documentElement.dataset.theme!=='light';
+  if(l)document.documentElement.dataset.theme='light';else delete document.documentElement.dataset.theme;try{localStorage.setItem('theme',l?'light':'dark')}catch(e){}};
+if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 async function api(url, body){const r=await fetch(url,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:body===undefined?undefined:JSON.stringify(body)});if(r.status===401){location='/login';return{}}return r.json()}
 document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('form[method=post],form[method=POST]').forEach(f=>{if(!f.querySelector('input[name=_csrf]')){const i=document.createElement('input');i.type='hidden';i.name='_csrf';i.value=CSRF;f.appendChild(i)}}));
 function fmt(ts){if(!ts)return'—';const d=new Date(ts*1000);return d.toLocaleDateString('fr-BE')+' '+d.toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'})}
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 </script>
-<script src="{{ url_for('static', filename='tables.js') }}?v={{ version }}"></script>
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='tables.js') }}?v={{ version }}"></script>
 {% block js %}{% endblock %}
 </body></html>

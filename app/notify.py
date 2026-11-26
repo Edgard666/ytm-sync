@@ -41,11 +41,27 @@ def _email(c, title, msg, prio):
         srv.send_message(m)
 
 
-CHANNELS = {"ntfy": _ntfy, "gotify": _gotify, "email": _email}
+def _webhook(c, title, msg, prio):
+    """Discord, Slack ou JSON generique."""
+    fmt = c.get("format", "discord")
+    if fmt == "discord":
+        body = {"username": "YTM Sync", "content": f"**{title}**\n{msg}"[:1990]}
+    elif fmt == "slack":
+        body = {"text": f"*{title}*\n{msg}"}
+    else:
+        from .store import VERSION
+        body = {"app": "ytm-sync", "version": VERSION, "title": title, "message": msg, "priority": prio}
+    r = requests.post(c["url"], json=body, timeout=15)
+    r.raise_for_status()
+
+
+CHANNELS = {"ntfy": _ntfy, "gotify": _gotify, "email": _email, "webhook": _webhook}
 
 
 def send(cfg, title, msg, prio="normal", only=None, log=None):
     """Envoie sur tous les canaux actifs (ou seulement `only`). Retourne {canal: erreur|None}."""
+    from .engine import redact
+    title, msg = redact(title), redact(msg)
     res = {}
     for name, fn in CHANNELS.items():
         c = cfg["notify"].get(name, {})
@@ -57,7 +73,8 @@ def send(cfg, title, msg, prio="normal", only=None, log=None):
             fn(c, title, msg, prio)
             res[name] = None
         except Exception as ex:
-            res[name] = str(ex)
+            res[name] = (f"HTTP {ex.response.status_code}" if isinstance(ex, requests.HTTPError)
+                         else type(ex).__name__ if isinstance(ex, requests.RequestException) else redact(str(ex)))
             if log:
                 log(f"!! Notification {name} : {ex}")
     return res

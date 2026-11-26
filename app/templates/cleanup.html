@@ -15,11 +15,20 @@ Suivi depuis la v3.0.0 : {{ total }} titre(s) arrivé(s) dans Navidrome après u
 <td class="mut">{{ o.nd_album or '' }}</td><td class="mut"><small>{{ o.nd_path or '' }}</small></td>
 <td class="mut">{{ o.at|dtf }}</td><td><span class="badge b-ign">{{ o.reason }}</span></td></tr>
 {% endfor %}</table>
-<p><button class="btn" onclick="forget()">Oublier la sélection</button></p>
+<p><button class="btn" data-act="forget">Oublier la sélection</button></p>
 {% else %}<p class="mut">Rien à signaler : tous les titres téléchargés via YTM Sync sont encore dans une playlist.</p>{% endif %}
 </div>
+<div class="card"><div class="row"><h2 style="margin:0">Doublons dans la bibliothèque Navidrome</h2><div class="sp"></div>
+<button class="btn" data-act="loadDup">Rechercher les doublons</button> <a class="btn" href="/export/duplicates.csv">Exporter (CSV)</a></div>
+<p class="mut"><small>Même artiste, même titre et même version, en plusieurs fichiers. La meilleure qualité est marquée ★. Rien n'est supprimé : à toi de faire le tri.</small></p>
+<div id="dup"></div></div>
 {% endblock %}
-{% block js %}<script>
+{% block js %}<script nonce="{{ csp_nonce() }}">
+async function loadDup(){const el=document.getElementById('dup');el.textContent='Analyse de la bibliothèque…';
+  const r=await api('/api/cleanup/duplicates');if(!r.ok){el.innerHTML='<span class="flash err">'+esc(r.msg)+'</span>';return}
+  if(!r.groups.length){el.textContent=`Aucun doublon sur ${r.library} morceaux.`;return}
+  el.innerHTML=`<p class="mut">${r.groups.length} morceau(x) en double sur ${r.library}.</p><table><tr><th>Artiste</th><th>Titre</th><th>Fichiers</th></tr>`+r.groups.slice(0,500).map(g=>
+    `<tr><td>${esc(g.artist)}</td><td>${esc(g.title)}</td><td>${g.files.map(f=>`<div>${f.best?'<span class="badge b-ok" title="Meilleure qualité">★</span> ':''}<span class="badge b-ign">${esc(f.quality)}</span> <small class="mut">${esc(f.path||'')}</small></div>`).join('')}</td></tr>`).join('')+'</table>'}
 async function forget(){const ids=[...document.querySelectorAll('.sel:checked')].map(c=>c.value);
   if(!ids.length)return;if(!confirm(ids.length+' ligne(s) retirée(s) de cette liste. Les fichiers ne sont pas touchés. Continuer ?'))return;
   await api('/api/cleanup/forget',{ids});location.reload()}

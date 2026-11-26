@@ -3,71 +3,145 @@
 <a class="btn" href="/export/tracks.csv?status=missing">Exporter les manquants</a>
 <a class="btn" href="/export/tracks.csv?status=present">Exporter les présents</a>
 <a class="btn" href="/export/tracks.csv?status=ignored">Exporter les ignorés</a>
-<a class="btn" href="/export/tracks.csv?status=all">Tout exporter</a>
-<button class="btn" onclick="rereqAll()">Tout redemander au prochain passage</button></div>
+<a class="btn" href="/export/tracks.csv?status=all">Tout exporter</a></div>
 <div class="card">
-<div class="row"><div class="tabs" id="tabs">
-  <button data-f="all" class="on">Tous</button><button data-f="missing">Manquants</button><button data-f="requested">Demandés</button>
-  <button data-f="error">Erreurs</button><button data-f="warn">Durée à vérifier</button><button data-f="manual">Corrigés</button><button data-f="present">Présents</button><button data-f="ignored">Ignorés</button><button data-f="dlfail">Échecs de téléchargement</button></div>
-<div class="sp"></div><input type="text" id="q" placeholder="Rechercher artiste / titre…" style="max-width:280px"></div>
-<div class="help"><b>Lier…</b> : associer toi-même un morceau Navidrome (le titre devient présent, jamais demandé à SoulSync). <b>Délier</b> : refuser une correspondance fausse. <b>Ignorer</b> : ne jamais importer ce titre (ni recherche, ni SoulSync, ni playlist Navidrome) ; s'applique aussi aux autres vidéos du même morceau et le retire de la wishlist SoulSync s'il y était. Tes corrections sont gardées et appliquées aux playlists Navidrome dès la prochaine synchro.</div>
-<p class="mut" id="cnt"></p>
-<table id="t"><tr><th>Artiste</th><th>Titre</th><th>Album</th><th>Trouvé dans Navidrome</th><th>Playlists</th><th>Statut</th><th>Suivi</th><th>Demandé le</th><th></th></tr>
-{% set lab = {'present':('Présent','b-ok'),'missing':('Manquant','b-warn'),'requested':('Demandé','b-info'),'error':('Erreur','b-err'),'ignored':('Ignoré','b-ign')} %}
-{% for e in rows %}{% set l = lab.get(e.status, ('?','b-warn')) %}
-<tr data-s="{{ e.status }}" data-w="{{ 1 if e.warn else 0 }}" data-m="{{ 1 if (e.manual or e.blocked) else 0 }}" data-d="{{ e.dl_status if e.status == 'requested' else '' }}" data-q="{{ (e.artist ~ ' ' ~ e.title)|lower }}">
-<td>{{ e.artist }}</td><td><a href="https://music.youtube.com/watch?v={{ e.videoId }}" target="_blank" rel="noopener">{{ e.title }}</a></td><td class="mut">{{ e.album or '' }}</td>
-<td class="mut">{% if e.nd_title %}{{ e.nd_artist }} — {{ e.nd_title }}{% if e.nd_album %}<br><small>{{ e.nd_album }}</small>{% endif %}{% endif %}</td>
-<td class="mut">{% for p in e.playlists %}{{ names.get(p, '?') }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
-<td><span class="badge {{ l[1] }}" {% if e.error %}title="{{ e.error }}"{% endif %}>{{ l[0] }}</span>{% if e.warn %} <span class="badge b-warn" title="{{ e.warn }}">⚠ durée</span>{% endif %}{% if e.manual %} <span class="badge b-info">lien manuel</span>{% endif %}{% if e.blocked %} <span class="badge b-err" title="Correspondances refusées par toi">{{ e.blocked }} refusé(s)</span>{% endif %}</td>
-{% set dcls = {'failed':'b-err','completed':'b-ok','gone':'b-ok','downloading':'b-info','searching':'b-info','pending':'b-info'} %}
-<td>{% if e.status == 'requested' and e.dl_status %}<span class="badge {{ dcls.get(e.dl_status, 'b-ign') }}" {% if e.dl_error %}title="{{ e.dl_error }}"{% endif %}>{{ dl_label.get(e.dl_status, e.dl_status) }}{% if e.dl_status == 'downloading' and e.dl_progress is not none %} {{ e.dl_progress }} %{% endif %}</span>{% if e.dl_error %}<br><small class="mut">{{ e.dl_error[:70] }}</small>{% endif %}
-{% elif e.status == 'ignored' %}<small class="mut">{{ e.ignore_reason or 'ignoré manuellement' }}</small>{% endif %}</td>
-<td class="mut">{{ e.requested_at|dtf }}</td>
-<td style="white-space:nowrap">
-  {% if e.status == 'ignored' %}<button class="btn s" onclick="ign('{{ e.videoId }}',false)">Ne plus ignorer</button>{% else %}
-  <button class="btn s" onclick="ign('{{ e.videoId }}',true)" title="Ne pas importer ce titre dans Navidrome">Ignorer</button>
-  <button class="btn s" onclick='openLink({{ e.videoId|tojson }}, {{ ((e.artist or "") ~ " " ~ (e.title or ""))|tojson }})'>Lier…</button>
-  {% if e.status == 'present' %}<button class="btn s d" onclick="act('{{ e.videoId }}','unlink','Ce lien est faux ? Il sera refusé et la recherche continuera.')">Délier</button>{% endif %}
-  {% if e.manual or e.blocked %}<button class="btn s" onclick="act('{{ e.videoId }}','reset','Effacer tes corrections pour ce titre ?')">Réinitialiser</button>{% endif %}
-  {% if e.status != 'present' %}<button class="btn s" onclick="rereq(['{{ e.videoId }}'])">Redemander</button>{% endif %}
-  {% endif %}
-</td></tr>
-{% endfor %}</table>
-{% if not rows %}<p class="mut">Aucun titre : lance une première synchro (ou une simulation).</p>{% endif %}
+<div class="row"><div class="tabs" id="tabs"></div>
+<div class="sp"></div><input type="text" id="q" placeholder="Rechercher artiste / titre / album…" style="max-width:280px"></div>
+<div class="help"><b>Lier…</b> : associer toi-même un morceau Navidrome. <b>Délier</b> : refuser une correspondance fausse.
+<b>Ignorer</b> : ne jamais importer ce titre (ni recherche, ni SoulSync, ni playlist Navidrome) ; s'applique aussi aux autres vidéos du même morceau et le retire de la wishlist SoulSync.
+Coche plusieurs lignes pour agir d'un coup. Clic sur un en-tête = trier, ⌕ = filtrer la colonne.</div>
+<div class="row" id="bulk" style="margin:8px 0">
+  <span class="mut" id="selInfo">0 sélectionné</span>
+  <button class="btn s" data-b="ignore" disabled>Ignorer</button>
+  <button class="btn s" data-b="unignore" disabled>Ne plus ignorer</button>
+  <button class="btn s" data-b="rerequest" disabled>Redemander</button>
+  <button class="btn s" data-b="upgrade" disabled title="Redemander à SoulSync en meilleure qualité (titres présents)">Améliorer la qualité</button>
+  <button class="btn s" id="selAll">Tout sélectionner (filtre actuel)</button>
+  <button class="btn s" id="selNone">Désélectionner</button>
+  <div class="sp"></div>
+  <span class="mut" id="cnt"></span>
+</div>
+<div class="tscroll">
+<table id="t" data-noenhance>
+<thead><tr id="thead"></tr></thead><tbody id="tb"><tr><td class="mut">Chargement…</td></tr></tbody></table>
+</div>
+<div class="row" style="margin-top:12px">
+  <button class="btn s" id="prev">← Précédent</button><span class="mut" id="pinfo"></span><button class="btn s" id="next">Suivant →</button>
+  <div class="sp"></div><label class="mut" style="margin:0">Par page <select id="psize" style="width:auto;display:inline-block;padding:4px 8px">
+  <option>50</option><option selected>100</option><option>250</option><option>500</option></select></label>
+</div>
 </div>
 <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:20;align-items:flex-start;justify-content:center;padding-top:8vh">
  <div class="card" style="width:min(820px,94vw);max-height:80vh;overflow:auto">
-  <div class="row"><h2 style="margin:0">Lier à un morceau Navidrome</h2><div class="sp"></div><button class="btn s" onclick="closeLink()">Fermer</button></div>
+  <div class="row"><h2 style="margin:0">Lier à un morceau Navidrome</h2><div class="sp"></div><button class="btn s" data-act="closeLink">Fermer</button></div>
   <p class="mut" id="mTrack"></p>
-  <div class="row"><input type="text" id="mQ" placeholder="Rechercher dans Navidrome…" style="flex:1"><button class="btn p" onclick="ndSearch()">Rechercher</button></div>
+  <h2 style="margin:6px 0">Suggestions</h2><div id="mSug" class="mut">Recherche des morceaux les plus proches…</div>
+  <h2 style="margin:14px 0 6px">Recherche libre</h2>
+  <div class="row"><input type="text" id="mQ" placeholder="Rechercher dans Navidrome…" style="flex:1"><button class="btn p" data-act="ndSearch">Rechercher</button></div>
   <div id="mRes" style="margin-top:12px"></div>
  </div></div>
 {% endblock %}
-{% block js %}<script>
-let f=['missing','requested','error','warn','manual','present','ignored','dlfail'].includes(location.hash.slice(1))?location.hash.slice(1):'all';
-document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x.dataset.f===f));const rows=[...document.querySelectorAll('#t tr[data-s]')];
-function apply(){const q=document.getElementById('q').value.toLowerCase();let n=0;
-  rows.forEach(r=>{const ok=(f==='all'||r.dataset.s===f||(f==='warn'&&r.dataset.w==='1')||(f==='manual'&&r.dataset.m==='1')||(f==='dlfail'&&r.dataset.d==='failed'))&&(!q||r.dataset.q.includes(q));r.style.display=ok?'':'none';if(ok&&!r.classList.contains('cf-hide'))n++});
-  document.getElementById('cnt').textContent=n+' titre(s)'}
-document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');f=b.dataset.f;apply()});
-document.getElementById('q').oninput=apply;apply();
-document.addEventListener('tablefiltered',apply);
+{% block js %}<script nonce="{{ csp_nonce() }}">
+const ST={present:['Présent','b-ok'],missing:['Manquant','b-warn'],requested:['Demandé','b-info'],error:['Erreur','b-err'],ignored:['Ignoré','b-ign']};
+const DCLS={failed:'b-err',completed:'b-ok',gone:'b-ok',downloading:'b-info',searching:'b-info',pending:'b-info',unmatched:'b-warn'};
+const TABS=[['all','Tous',()=>true],['missing','Manquants',r=>r.status==='missing'],['requested','Demandés',r=>r.status==='requested'],
+  ['unmatched','À lier',r=>r.dl_status==='unmatched'&&r.status==='requested'],['dlfail','Échecs de téléchargement',r=>r.dl_status==='failed'&&r.status==='requested'],
+  ['error','Erreurs',r=>r.status==='error'],['warn','Durée à vérifier',r=>!!r.warn],['manual','Corrigés',r=>r.manual||r.blocked],
+  ['lowq','Qualité faible',r=>r.status==='present'&&!!r.low_quality],['present','Présents',r=>r.status==='present'],['ignored','Ignorés',r=>r.status==='ignored']];
+const nz=s=>String(s??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+const mmss=s=>s?Math.floor(s/60)+':'+String(s%60).padStart(2,'0'):'';
+let DL={},ROWS=[],tab=TABS.some(t=>t[0]===location.hash.slice(1))?location.hash.slice(1):'all',page=0,sortK=null,sortD=1;
+const sel=new Set(),cf={};
+// colonnes : [cle, libelle, texte pour tri/filtre, rendu HTML]
+const COLS=[
+ ['artist','Artiste',r=>r.artist,r=>esc(r.artist)],
+ ['title','Titre',r=>r.title,r=>`<a href="https://music.youtube.com/watch?v=${encodeURIComponent(r.videoId)}" target="_blank" rel="noopener">${esc(r.title)}</a>`],
+ ['album','Album',r=>r.album,r=>`<span class="mut">${esc(r.album)}</span>`],
+ ['nd','Trouvé dans Navidrome',r=>r.nd_title?r.nd_artist+' '+r.nd_title+' '+(r.nd_album||''):'',r=>r.nd_title?`<span class="mut">${esc(r.nd_artist)} — ${esc(r.nd_title)}${r.nd_album?'<br><small>'+esc(r.nd_album)+'</small>':''}</span>`:''],
+ ['playlists','Playlists',r=>r.playlists,r=>`<span class="mut">${esc(r.playlists)}</span>`],
+ ['status','Statut',r=>(ST[r.status]||['?'])[0]+(r.warn?' durée':'')+(r.manual?' lien manuel':''),r=>{const l=ST[r.status]||['?','b-warn'];
+   return `<span class="badge ${l[1]}" ${r.error?`title="${esc(r.error)}"`:''}>${l[0]}</span>`+(r.warn?` <span class="badge b-warn" title="${esc(r.warn)}">⚠ durée</span>`:'')
+   +(r.manual?' <span class="badge b-info">lien manuel</span>':'')+(r.status==='present'&&r.low_quality?` <span class="badge b-warn" title="Qualité faible">⚠ ${esc(r.low_quality)}</span>`:'')+(r.blocked?` <span class="badge b-err" title="Correspondances refusées par toi">${r.blocked} refusé(s)</span>`:'')}],
+ ['suivi','Suivi',r=>r.status==='requested'?(DL[r.dl_status]||''):(r.status==='ignored'?r.ignore_reason||'':''),r=>{
+   if(r.status==='requested'&&r.dl_status)return `<span class="badge ${DCLS[r.dl_status]||'b-ign'}" ${r.dl_error?`title="${esc(r.dl_error)}"`:''}>${esc(DL[r.dl_status]||r.dl_status)}${r.dl_status==='downloading'&&r.dl_progress!=null?' '+r.dl_progress+' %':''}</span>`+(r.dl_error?`<br><small class="mut">${esc(String(r.dl_error).slice(0,70))}</small>`:'');
+   if(r.status==='ignored')return `<small class="mut">${esc(r.ignore_reason||'ignoré manuellement')}</small>`;
+   if(r.status==='present'&&r.upgrade_at)return `<small class="mut">amélioration demandée le ${fmt(r.upgrade_at)}</small>`;
+   if(r.status==='present'&&r.nd_quality)return `<small class="mut">${esc(r.nd_quality)}</small>`;return ''}],
+ ['requested_at','Demandé le',r=>r.requested_at||'',r=>`<span class="mut">${r.requested_at?fmt(r.requested_at):'—'}</span>`],
+];
+function btn(label,fn,args,cls='',title=''){return `<button class="btn s ${cls}" data-act="${fn}" data-args="${esc(JSON.stringify(args))}"${title?` title="${esc(title)}"`:''}>${label}</button>`}
+function actions(r){const v=r.videoId;
+  if(r.status==='ignored')return btn('Ne plus ignorer','one',[v,'unignore']);
+  let h=btn('Ignorer','one',[v,'ignore'],'','Ne pas importer ce titre dans Navidrome')+' '+btn('Lier…','openLink',[v]);
+  if(r.status==='present')h+=' '+btn('Délier','act',[v,'unlink','Ce lien est faux ? Il sera refusé et la recherche continuera.'],'d');
+  if(r.manual||r.blocked)h+=' '+btn('Réinitialiser','act',[v,'reset','Effacer tes corrections pour ce titre ?']);
+  if(r.status==='present'&&r.low_quality)h+=' '+btn('Améliorer','one',[v,'upgrade'],'','Redemander ce titre à SoulSync en meilleure qualité');
+  if(r.status!=='present')h+=' '+btn('Redemander','one',[v,'rerequest']);
+  return h}
+function buildHead(){document.getElementById('thead').innerHTML='<th><input type="checkbox" id="pgAll" title="Sélectionner la page"></th>'+COLS.map((c,i)=>
+  `<th class="sortable" data-i="${i}"><div class="th-top"><span>${c[1]}</span><button type="button" class="th-filter" data-f="${i}" title="Filtrer cette colonne">⌕</button></div>
+   <div class="th-box" style="display:none"><input type="text" data-in="${i}" placeholder="Filtrer…"><button type="button" class="th-clear" data-c="${i}">×</button></div></th>`).join('')+'<th></th>';
+  document.querySelectorAll('#thead th.sortable').forEach(th=>th.addEventListener('click',ev=>{if(ev.target.closest('.th-box')||ev.target.closest('.th-filter'))return;
+    const i=+th.dataset.i;sortD=sortK===i?-sortD:1;sortK=i;render()}));
+  document.querySelectorAll('[data-f]').forEach(b=>b.onclick=ev=>{ev.stopPropagation();const box=b.parentNode.nextElementSibling;
+    box.style.display=box.style.display==='none'?'flex':'none';if(box.style.display==='flex')box.querySelector('input').focus()});
+  document.querySelectorAll('[data-in]').forEach(inp=>inp.oninput=()=>{cf[inp.dataset.in]=nz(inp.value);
+    document.querySelector(`[data-f="${inp.dataset.in}"]`).classList.toggle('on',!!inp.value);page=0;render()});
+  document.querySelectorAll('[data-c]').forEach(b=>b.onclick=ev=>{ev.stopPropagation();const i=b.dataset.c,inp=document.querySelector(`[data-in="${i}"]`);
+    inp.value='';cf[i]='';document.querySelector(`[data-f="${i}"]`).classList.remove('on');b.parentNode.style.display='none';page=0;render()});
+  document.getElementById('pgAll').onchange=ev=>{pageRows().forEach(r=>ev.target.checked?sel.add(r.videoId):sel.delete(r.videoId));render()}}
+function filtered(){const t=TABS.find(x=>x[0]===tab)[2],q=nz(document.getElementById('q').value);
+  let rs=ROWS.filter(r=>t(r)&&(!q||nz(r.artist+' '+r.title+' '+(r.album||'')+' '+(r.nd_title||'')).includes(q))
+    &&Object.entries(cf).every(([i,v])=>!v||nz(COLS[i][2](r)).includes(v)));
+  if(sortK!==null){const f=COLS[sortK][2];rs.sort((a,b)=>{const x=f(a),y=f(b);if(x===''&&y!=='')return 1;if(y===''&&x!=='')return -1;
+    return (typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),'fr',{numeric:true,sensitivity:'base'}))*sortD})}
+  return rs}
+let _f=[];function pageRows(){const n=+document.getElementById('psize').value;return _f.slice(page*n,page*n+n)}
+function render(){_f=filtered();const n=+document.getElementById('psize').value,pages=Math.max(1,Math.ceil(_f.length/n));page=Math.min(page,pages-1);
+  document.getElementById('tabs').innerHTML=TABS.map(t=>`<button data-t="${t[0]}" class="${t[0]===tab?'on':''}">${t[1]} <small>${ROWS.filter(t[2]).length}</small></button>`).join('');
+  document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;history.replaceState(null,'','#'+tab);page=0;render()});
+  document.querySelectorAll('#thead th.sortable').forEach(th=>{th.classList.toggle('sort-asc',+th.dataset.i===sortK&&sortD===1);th.classList.toggle('sort-desc',+th.dataset.i===sortK&&sortD===-1)});
+  const pr=pageRows();
+  document.getElementById('tb').innerHTML=pr.length?pr.map(r=>`<tr><td><input type="checkbox" class="rs" data-v="${esc(r.videoId)}" ${sel.has(r.videoId)?'checked':''}></td>${COLS.map(c=>`<td>${c[3](r)}</td>`).join('')}<td style="white-space:nowrap">${actions(r)}</td></tr>`).join('')
+    :`<tr><td colspan="${COLS.length+2}" class="mut">${ROWS.length?'Aucun titre ne correspond aux filtres.':'Aucun titre : lance une première synchro (ou une simulation).'}</td></tr>`;
+  document.querySelectorAll('.rs').forEach(c=>c.onchange=()=>{c.checked?sel.add(c.dataset.v):sel.delete(c.dataset.v);bulkState()});
+  document.getElementById('pgAll').checked=pr.length&&pr.every(r=>sel.has(r.videoId));
+  document.getElementById('cnt').textContent=`${_f.length} titre(s)`;
+  document.getElementById('pinfo').textContent=_f.length?` ${page*n+1}–${Math.min(_f.length,(page+1)*n)} sur ${_f.length} (page ${page+1}/${pages}) `:'';
+  document.getElementById('prev').disabled=page===0;document.getElementById('next').disabled=page>=pages-1;bulkState()}
+function bulkState(){document.getElementById('selInfo').textContent=sel.size+' sélectionné(s)';document.querySelectorAll('[data-b]').forEach(b=>b.disabled=!sel.size)}
+async function load(){const r=await api('/api/tracks');if(!r.ok)return;DL=r.dl_label;ROWS=r.rows;
+  const known=new Set(ROWS.map(x=>x.videoId));[...sel].forEach(v=>known.has(v)||sel.delete(v));render()}
+function done(r){if(r&&r.removed)alert(r.removed+' titre(s) retiré(s) de la wishlist SoulSync.');if(r&&r.sent!==undefined)alert(r.sent+' titre(s) redemandé(s) à SoulSync en meilleure qualité.'+(r.msg?'\n'+r.msg:''));load()}
+async function one(v,a){done(await api('/api/tracks/bulk',{ids:[v],action:a}))}
+document.querySelectorAll('[data-b]').forEach(b=>b.onclick=async()=>{const a=b.dataset.b,lab={ignore:'Ignorer',unignore:'Ne plus ignorer',rerequest:'Redemander',upgrade:'Améliorer la qualité'}[a];
+  if(!confirm(`${lab} : ${sel.size} titre(s) ?`))return;done(await api('/api/tracks/bulk',{ids:[...sel],action:a}));sel.clear()});
+document.getElementById('selAll').onclick=()=>{_f.forEach(r=>sel.add(r.videoId));render()};
+document.getElementById('selNone').onclick=()=>{sel.clear();render()};
+document.getElementById('prev').onclick=()=>{page--;render()};document.getElementById('next').onclick=()=>{page++;render()};
+document.getElementById('psize').onchange=()=>{page=0;render()};document.getElementById('q').oninput=()=>{page=0;render()};
+// --- lien manuel
 let curVid=null;
-function mmss(s){return s?Math.floor(s/60)+':'+String(s%60).padStart(2,'0'):''}
-function openLink(vid,label){curVid=vid;document.getElementById('mTrack').textContent='YouTube : '+label;
+function openLink(vid){const r=ROWS.find(x=>x.videoId===vid)||{};curVid=vid;const label=(r.artist||'')+' '+(r.title||'');
+  document.getElementById('mTrack').textContent='YouTube : '+label;
   const q=document.getElementById('mQ');q.value=label.replace(/\(.*?\)|\[.*?\]/g,'').replace(/ - Topic/i,'').trim();
-  document.getElementById('modal').style.display='flex';ndSearch();q.focus()}
+  document.getElementById('modal').style.display='flex';document.getElementById('mRes').innerHTML='';q.focus();loadSug(vid)}
+async function loadSug(vid){const el=document.getElementById('mSug');el.textContent='Recherche des morceaux les plus proches…';
+  const r=await api('/api/tracks/'+encodeURIComponent(vid)+'/suggest');
+  if(!r.ok){el.innerHTML='<span class="flash err">'+esc(r.msg)+'</span>';return}
+  if(!r.songs.length){el.textContent='Aucun morceau proche dans la bibliothèque : utilise la recherche libre.';return}
+  el.innerHTML='<table><tr><th>Ressemblance</th><th>Artiste</th><th>Titre</th><th>Album</th><th>Durée</th><th></th></tr>'+r.songs.map(x=>
+    `<tr><td><span class="badge ${x.score>=80?'b-ok':x.score>=60?'b-warn':'b-ign'}">${x.score} %</span></td><td>${esc(x.artist)}</td><td title="${esc(x.path)}">${esc(x.title)}</td><td class="mut">${esc(x.album)}</td><td class="mut">${mmss(x.duration)}</td><td><button class="btn s p" data-link="${esc(x.id)}">Lier</button></td></tr>`).join('')+'</table>';
+  el.querySelectorAll('[data-link]').forEach(b=>b.onclick=()=>doLink(b.dataset.link))}
 function closeLink(){document.getElementById('modal').style.display='none'}
 document.getElementById('mQ').addEventListener('keydown',ev=>{if(ev.key==='Enter')ndSearch()});
 async function ndSearch(){const el=document.getElementById('mRes');el.textContent='Recherche…';
   const r=await api('/api/navidrome/search?q='+encodeURIComponent(document.getElementById('mQ').value));
   if(!r.ok){el.innerHTML='<div class="flash err">'+esc(r.msg)+'</div>';return}
   if(!r.songs.length){el.innerHTML='<p class="mut">Aucun résultat. Essaie avec seulement le titre ou l\'artiste.</p>';return}
-  el.innerHTML='<table><tr><th>Artiste</th><th>Titre</th><th>Album</th><th>Durée</th><th></th></tr>'+r.songs.map(x=>`<tr><td>${esc(x.artist)}</td><td title="${esc(x.path)}">${esc(x.title)}</td><td class="mut">${esc(x.album)}</td><td class="mut">${mmss(x.duration)}</td><td><button class="btn s p" onclick="doLink('${esc(x.id)}')">Lier</button></td></tr>`).join('')+'</table>'}
-async function doLink(ndId){const r=await api('/api/tracks/'+curVid+'/link',{nd_id:ndId});if(!r.ok){alert(r.msg);return}location.reload()}
-async function ign(vid,on){const r=await api('/api/tracks/'+vid+'/ignore',{ignore:on});if(r.removed)alert(r.removed+' titre(s) retiré(s) de la wishlist SoulSync.');location.reload()}
-async function act(vid,what,msg){if(!confirm(msg))return;await api('/api/tracks/'+vid+'/'+what,{});location.reload()}
-async function rereq(ids){await api('/api/tracks/rerequest',{ids});location.reload()}
-async function rereqAll(){if(confirm('Tous les titres non présents seront renvoyés à SoulSync au prochain passage. Continuer ?')){await api('/api/tracks/rerequest',{});location.reload()}}
+  el.innerHTML='<table><tr><th>Artiste</th><th>Titre</th><th>Album</th><th>Durée</th><th></th></tr>'+r.songs.map(x=>`<tr><td>${esc(x.artist)}</td><td title="${esc(x.path)}">${esc(x.title)}</td><td class="mut">${esc(x.album)}</td><td class="mut">${mmss(x.duration)}</td><td><button class="btn s p" data-link="${esc(x.id)}">Lier</button></td></tr>`).join('')+'</table>';
+  el.querySelectorAll('[data-link]').forEach(b=>b.onclick=()=>doLink(b.dataset.link))}
+async function doLink(ndId){const r=await api('/api/tracks/'+encodeURIComponent(curVid)+'/link',{nd_id:ndId});if(!r.ok){alert(r.msg);return}closeLink();load()}
+async function act(vid,what,msg){if(!confirm(msg))return;await api('/api/tracks/'+encodeURIComponent(vid)+'/'+what,{});load()}
+buildHead();load();
 </script>{% endblock %}

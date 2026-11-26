@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>YTM Sync — Connexion</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}"></head>
+<title>YTM Sync — Connexion</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="{{ url_for('static', filename='icon-192.png') }}">
+<script nonce="{{ csp_nonce() }}">try{if(localStorage.getItem('theme')==='light')document.documentElement.dataset.theme='light'}catch(e){}</script><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ version }}"></head>
 <body><div class="login">
   <div class="brand"><i class="dot"></i>YTM Sync</div>
   <div class="ver">Version {{ version }}</div>
@@ -9,9 +10,11 @@
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
     {% if setup %}
       <h2>Premier démarrage</h2>
-      <p class="mut">Choisis le mot de passe de l'interface.</p>
-      <label>Mot de passe</label><input type="password" name="password" autofocus required minlength="6">
-      <label>Confirmation</label><input type="password" name="password2" required minlength="6">
+      <p class="mut">Pour être sûr que c'est bien toi qui installes YTM Sync, saisis le <b>code d'installation</b> affiché dans les journaux du conteneur
+      (Unraid → onglet Docker → icône ytm-sync → <b>Logs</b>), puis choisis le mot de passe.</p>
+      <label>Code d'installation</label><input type="text" name="code" autofocus required placeholder="XXXX-XXXX" autocomplete="off" style="text-transform:uppercase;letter-spacing:2px">
+      <label>Mot de passe (10 caractères minimum)</label><input type="password" name="password" required minlength="10" autocomplete="new-password">
+      <label>Confirmation</label><input type="password" name="password2" required minlength="10" autocomplete="new-password">
       <p><button class="btn p" style="width:100%;justify-content:center">Créer</button></p>
     {% else %}
       <label>Mot de passe</label><input type="password" name="password" autofocus required>

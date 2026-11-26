@@ -2,5 +2,6 @@
 .github
 unraid
 *.md
+tests
 __pycache__
 config/

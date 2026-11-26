@@ -1,4 +1,6 @@
-flask==3.1.*
-waitress==3.*
-requests==2.*
-ytmusicapi==1.*
+# Versions figees : les mises a jour arrivent par Dependabot (pull request testee automatiquement)
+flask==3.1.3
+waitress==3.0.2
+requests==2.34.2
+ytmusicapi==1.12.4
+paho-mqtt==2.2.0

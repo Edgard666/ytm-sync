@@ -1,0 +1,17 @@
+# Propose chaque semaine les mises a jour (securite comprise) sous forme de pull request.
+# Les tests tournent automatiquement sur chaque proposition : fusionne-la si elle est verte.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule: {interval: weekly, day: monday}
+    groups:
+      dependances-python: {patterns: ["*"]}
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: {interval: weekly, day: monday}
+    groups:
+      actions-github: {patterns: ["*"]}
+  - package-ecosystem: docker
+    directory: "/"
+    schedule: {interval: weekly, day: monday}

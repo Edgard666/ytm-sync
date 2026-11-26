@@ -37,6 +37,10 @@
     const head = [...table.rows].find(r => r.querySelector('th'));
     if (!head) return;
     table.dataset.enhanced = '1';
+    if (!table.parentNode.classList.contains('tscroll')) {   // defilement horizontal sur telephone
+      const w = document.createElement('div'); w.className = 'tscroll';
+      table.parentNode.insertBefore(w, table); w.appendChild(table);
+    }
     const ths = [...head.cells];
     const filters = {};
     let sortCol = -1, sortDir = 1;

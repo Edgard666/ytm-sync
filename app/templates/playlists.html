@@ -8,6 +8,10 @@
   <div style="flex:1;min-width:180px"><label>Nom de la playlist Navidrome (optionnel)</label><input type="text" name="nd_name" placeholder="vide = {{ cfg.nd_playlists.prefix }}titre YouTube"></div>
   <button class="btn p">Ajouter</button>
   <a class="btn" href="/youtube#library">Importer depuis mon compte</a>
+</form>
+<form method="post" style="margin-top:10px" class="row"><input type="hidden" name="action" value="add"><input type="hidden" name="source" value="LM">
+  <button class="btn" title="Playlist automatique de YouTube Music (compte connecté requis)">♥ Ajouter « Titres que j'aime »</button>
+  <span class="mut"><small>Nécessite la connexion du compte YouTube (page Compte YouTube).</small></span>
 </form></div>
 <div class="card"><table>
 <tr><th>Playlist YouTube</th><th>Nom Navidrome</th><th>Compte Navidrome</th><th>Active</th><th>Dernier état</th><th></th></tr>
@@ -17,18 +21,53 @@
 <td><input form="f{{ p.id }}" type="text" name="nd_name" value="{{ p.nd_name }}" placeholder="{{ s.nd_name or (cfg.nd_playlists.prefix ~ 'titre YouTube') }}"></td>
 <td>{% if cfg.nd_accounts %}<select form="f{{ p.id }}" name="nd_account"><option value="">{{ cfg.navidrome.user }} (principal)</option>{% for a in cfg.nd_accounts %}<option value="{{ a.id }}" {{ 'selected' if p.nd_account == a.id }}>{{ a.user }}</option>{% endfor %}</select>{% else %}<span class="mut">{{ cfg.navidrome.user or '—' }}</span>{% endif %}</td>
 <td><input form="f{{ p.id }}" type="checkbox" name="enabled" {{ 'checked' if p.enabled }} style="width:18px;height:18px;accent-color:var(--acc)"></td>
-<td class="mut">{% if s.error %}<span class="badge b-err">erreur</span> {{ s.error[:80] }}{% elif s.last_sync %}{{ s.present }}/{{ s.total }} présents — {{ s.nd_result }}<br>{{ s.last_sync|dtf }}{% else %}—{% endif %}</td>
+<td class="mut">{% if s.error %}<span class="badge b-err">erreur</span> {{ s.error[:80] }}{% elif s.last_sync %}{{ s.present }}/{{ s.total }} présents — {{ s.nd_result }}<br>{{ s.last_sync|dtf }}{% else %}—{% endif %}
+{% if s.diff and (s.diff.added or s.diff.removed) %}<details class="diff"><summary>{{ 'Aperçu (simulation)' if s.diff.dry else 'Derniers changements' }} :
+  <span class="add">+{{ s.diff.added|length }}</span> <span class="rem">−{{ s.diff.removed|length }}</span></summary>
+  {% for t in s.diff.added[:200] %}<div class="add">+ {{ t }}</div>{% endfor %}{% for t in s.diff.removed[:200] %}<div class="rem">− {{ t }}</div>{% endfor %}</details>
+{% elif s.diff %}<div><small>{{ 'Aperçu : aucun changement' if s.diff.dry else 'Aucun changement' }}{{ ' (ordre modifié)' if s.diff.reordered }}</small></div>{% endif %}</td>
 <td style="white-space:nowrap">
   <button form="f{{ p.id }}" class="btn s" name="action" value="save">Enregistrer</button>
-  <button class="btn s" type="button" onclick="runOne('{{ p.id }}',true)">Simuler</button>
-  <button class="btn s p" type="button" onclick="runOne('{{ p.id }}',false)">Synchro</button>
-  <button form="f{{ p.id }}" class="btn s d" name="action" value="delete" onclick="return confirm('Retirer cette playlist ?')">Retirer</button>
+  <button class="btn s" type="button" data-act="runOne" data-args='{{ [p.id, true]|tojson|forceescape }}' title="Voir ce qui changerait, sans rien modifier">Aperçu</button>
+  <button class="btn s p" type="button" data-act="runOne" data-args='{{ [p.id, false]|tojson|forceescape }}'>Synchro</button>
+  <button form="f{{ p.id }}" class="btn s d" name="action" value="delete" data-confirm="Arrêter de surveiller cette playlist ? La playlist Navidrome est conservée.">Retirer</button>
+  {% if s.nd_pl_id %}<button form="f{{ p.id }}" class="btn s d" name="action" value="delete_nd" data-confirm="Arrêter de surveiller cette playlist ET supprimer « {{ s.nd_name }} » de Navidrome ? (les fichiers musicaux ne sont pas touchés)" title="Retirer et supprimer la playlist dans Navidrome">Retirer + supprimer dans Navidrome</button>{% endif %}
 </td></tr>
 {% else %}<tr><td colspan="6" class="mut">Aucune playlist surveillée pour l'instant.</td></tr>{% endfor %}
 </table>
 <div class="help">Les playlists Navidrome miroirs sont <b>écrasées</b> à chaque synchro (mêmes titres, même ordre que YouTube) : ne les modifie pas à la main. Renommer une playlist ici en crée une nouvelle dans Navidrome ; l'ancienne reste à supprimer dans Navidrome.</div>
 </div>
+<div class="card" id="export"><h2>Exporter une playlist Navidrome vers YouTube Music</h2>
+<p class="mut"><small>Crée une nouvelle playlist dans ton compte YouTube Music à partir d'une playlist Navidrome (chaque titre est recherché sur YouTube Music). Compte YouTube connecté requis.</small></p>
+<div class="row" style="align-items:flex-end">
+  <div style="flex:2;min-width:220px"><label>Playlist Navidrome</label><select id="exPl"><option value="">Chargement…</option></select></div>
+  <div style="flex:2;min-width:200px"><label>Nom sur YouTube Music</label><input type="text" id="exName"></div>
+  <div style="min-width:150px"><label>Visibilité</label><select id="exPriv"><option value="PRIVATE">Privée</option><option value="UNLISTED">Non répertoriée</option><option value="PUBLIC">Publique</option></select></div>
+  <button class="btn p" data-act="doExport">Exporter</button></div>
+<p class="test-res" id="exRes"></p>
+<div id="exList"></div></div>
 {% endblock %}
-{% block js %}<script>
-async function runOne(id,dry){const r=await api('/api/run',{dry,playlist:id});if(!r.ok)alert(r.error);else location='/'}
+{% block js %}<script nonce="{{ csp_nonce() }}">
+let ND_PLS=[];
+async function loadExports(){const r=await api('/api/navidrome/playlists');const sel=document.getElementById('exPl');
+  if(!r.ok){sel.innerHTML='<option value="">'+esc(r.msg)+'</option>';return}ND_PLS=r.playlists;
+  sel.innerHTML='<option value="">— choisir —</option>'+r.playlists.map((p,i)=>`<option value="${i}">${esc(p.name)} (${p.count??'?'} titres${p.account?', '+esc(p.owner):''})</option>`).join('');
+  sel.onchange=()=>{const p=ND_PLS[sel.value];if(p)document.getElementById('exName').value=p.name};
+  const ex=r.exports||[];document.getElementById('exList').innerHTML=ex.length?'<table><tr><th>Date</th><th>Navidrome</th><th>YouTube Music</th><th>Retrouvés</th><th>Statut</th></tr>'+ex.map(e=>
+    `<tr><td>${fmt(e.at)}</td><td>${esc(e.nd_name||'')}</td><td>${e.ytm_id?`<a href="https://music.youtube.com/playlist?list=${encodeURIComponent(e.ytm_id)}" target="_blank" rel="noopener">${esc(e.name)}</a>`:esc(e.name)}</td>
+     <td>${e.found}/${e.total}${e.not_found&&e.not_found.length?`<details><summary class="mut">${e.not_found.length} introuvable(s)</summary>${e.not_found.map(x=>'<div><small>'+esc(x)+'</small></div>').join('')}</details>`:''}</td>
+     <td><span class="badge ${e.status==='ok'?'b-ok':e.status==='erreur'?'b-err':'b-info'}" ${e.error?`title="${esc(e.error)}"`:''}>${esc(e.status)}</span>${e.error?'<br><small class="mut">'+esc(e.error)+'</small>':''}</td></tr>`).join('')+'</table>':''}
+async function doExport(){const p=ND_PLS[document.getElementById('exPl').value];const el=document.getElementById('exRes');
+  if(!p){el.innerHTML='<span class="badge b-err">Choisis une playlist</span>';return}
+  const r=await api('/api/export-ytm',{id:p.id,account:p.account,name:document.getElementById('exName').value,privacy:document.getElementById('exPriv').value});
+  if(!r.ok){el.innerHTML='<span class="badge b-err">'+esc(r.msg)+'</span>';return}
+  el.innerHTML='<span class="badge b-info">Export en cours… (suivi dans le journal du tableau de bord)</span>';
+  const n=(await api('/api/navidrome/playlists')).exports?.length||0;
+  for(let i=0;i<600;i++){await new Promise(z=>setTimeout(z,3000));const x=await api('/api/navidrome/playlists');if((x.exports||[]).length>n||(x.exports||[])[0]?.at>Date.now()/1000-5){break}}
+  el.textContent='';loadExports()}
+loadExports();
+async function runOne(id,dry){const r=await api('/api/run',{dry,playlist:id});if(!r.ok){alert(r.error);return}
+  if(!dry){location='/';return}
+  for(let i=0;i<120;i++){await new Promise(z=>setTimeout(z,1000));const st=await api('/api/status');if(!st.running)break}
+  location.reload()}
 </script>{% endblock %}

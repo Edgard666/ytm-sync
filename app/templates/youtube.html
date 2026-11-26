@@ -4,7 +4,7 @@
 {% if connected and account %}<p><span class="badge b-ok">Connecté</span> &nbsp;{{ account }}</p>
 {% elif connected %}<p><span class="badge b-err">Session invalide ou expirée</span> <span class="mut">{{ err }}</span></p><p>Recopie de nouveaux en-têtes ci-dessous.</p>
 {% else %}<p><span class="badge b-warn">Non connecté</span> &nbsp;<span class="mut">seules les playlists publiques sont lisibles.</span></p>{% endif %}
-{% if connected %}<form method="post"><input type="hidden" name="action" value="logout"><button class="btn d s" onclick="return confirm('Supprimer la session ?')">Supprimer la session</button></form>{% endif %}
+{% if connected %}<form method="post"><input type="hidden" name="action" value="logout"><button class="btn d s" data-confirm="Supprimer la session ?">Supprimer la session</button></form>{% endif %}
 </div>
 
 <div class="card"><h2>{{ 'Renouveler la connexion' if connected else 'Se connecter (playlists privées)' }}</h2>
@@ -20,12 +20,20 @@ La session reste valide tant que tu ne te déconnectes pas de YouTube dans ce na
 <p><button class="btn p">Enregistrer la connexion</button></p></form></div>
 
 <div class="card" id="library"><div class="row"><h2 style="margin:0">Importer des playlists de mon compte</h2><div class="sp"></div>
-<button class="btn s" onclick="loadLib()" {{ 'disabled' if not connected }}>Charger mes playlists</button></div>
+<button class="btn s" data-act="loadLib" {{ 'disabled' if not connected }}>Charger mes playlists</button></div>
 {% if not connected %}<p class="mut">Connecte d'abord ton compte.</p>{% endif %}
 <form method="post" id="libForm" style="display:none"><input type="hidden" name="action" value="import">
 <div id="lib"></div><p><button class="btn p">Ajouter la sélection</button></p></form></div>
+<div class="card" id="mixes"><div class="row"><h2 style="margin:0">Mes mix et recommandations</h2><div class="sp"></div>
+<button class="btn s" data-act="loadMixes" {{ 'disabled' if not connected }}>Charger mes mix</button></div>
+<p class="mut"><small>Supermix, « Découvertes de la semaine », mix par artiste… Leur contenu change régulièrement : la playlist Navidrome suivra.</small></p>
+<form method="post" id="mixForm" style="display:none"><input type="hidden" name="action" value="import"><div id="mixList"></div><p><button class="btn p">Ajouter la sélection</button></p></form></div>
 {% endblock %}
-{% block js %}<script>
+{% block js %}<script nonce="{{ csp_nonce() }}">
+async function loadMixes(){const r=await api('/api/youtube/mixes');const f=document.getElementById('mixForm'),el=document.getElementById('mixList');f.style.display='block';
+  if(!r.ok){el.innerHTML='<p class="flash err">'+esc(r.msg)+'</p>';return}
+  if(!r.mixes.length){el.innerHTML='<p class="mut">Aucun mix trouvé sur l\'accueil YouTube Music.</p>';return}
+  el.innerHTML='<table><tr><th></th><th>Mix</th><th>Rubrique</th></tr>'+r.mixes.map(m=>`<tr><td><input type="checkbox" name="pl" value="${esc(m.id)}" ${m.added?'disabled checked':''} style="width:18px;height:18px;accent-color:var(--acc)"></td><td>${esc(m.title)} ${m.added?'<span class="badge b-ok">déjà surveillé</span>':''}<br><small class="mut">${esc(m.description||'')}</small></td><td class="mut">${esc(m.section||'')}</td></tr>`).join('')+'</table>'}
 async function loadLib(){const r=await api('/api/youtube/library');const f=document.getElementById('libForm'),el=document.getElementById('lib');f.style.display='block';
   if(!r.ok){el.innerHTML='<p class="flash err">'+esc(r.msg)+'</p>';return}
   el.innerHTML='<table><tr><th></th><th>Playlist</th><th>Titres</th></tr>'+r.playlists.map(p=>`<tr><td><input type="checkbox" name="pl" value="${esc(p.id)}" ${p.added?'disabled checked':''} style="width:18px;height:18px;accent-color:var(--acc)"></td><td>${esc(p.title)} ${p.added?'<span class="badge b-ok">déjà surveillée</span>':''}</td><td class="mut">${esc(p.count??'')}</td></tr>`).join('')+'</table>'}
