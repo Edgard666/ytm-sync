@@ -108,7 +108,7 @@
   <p><button type="button" class="btn s" data-act="revoke">Déconnecter tous les autres appareils</button> <span class="test-res" id="r_rev"></span></p>
   <label>Déconnexion automatique après une inactivité de (jours, 0 = jamais)</label><input type="number" name="idle_days" min="0" max="90" value="{{ c.security.idle_days }}">
   <label class="check"><input type="checkbox" name="behind_proxy" {{ 'checked' if c.security.behind_proxy }}> Accès via un reverse proxy (Zoraxy…) — utilise l'IP réelle du visiteur</label>
-  <label>Adresse(s) IP du reverse proxy (recommandé)</label><input type="text" name="proxy_ips" value="{{ c.security.proxy_ips }}" placeholder="ex. 172.17.0.1">
+  <label>Adresse(s) IP du reverse proxy (recommandé)</label><input type="text" name="proxy_ips" value="{{ c.security.proxy_ips }}" placeholder="ex. 172.17.0.1"><p class="mut">Vide : seuls les appareils du réseau local (et Docker) sont crus.</p>
   <p class="mut"><small>Seules ces adresses peuvent transmettre l'IP réelle du visiteur ; sans elles, un appareil du réseau pourrait se faire passer pour un autre et contourner le blocage après 5 essais.
   Dernière adresse vue en direct : <code>{{ last_peer }}</code> (si tu passes par Zoraxy en ce moment, c'est la sienne).</small></p>
   <label>Nombre de journaux d'exécution conservés</label><input type="number" name="logs_keep" min="1" value="{{ c.logs_keep }}">

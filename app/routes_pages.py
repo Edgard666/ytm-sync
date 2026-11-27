@@ -125,13 +125,12 @@ def youtube():
         act = request.form.get("action")
         if act == "headers":
             try:
-                ytm_setup_from_headers(request.form.get("headers", ""))
+                name = ytm_setup_from_headers(request.form.get("headers", ""))
                 store.state["ytm_auth_error"] = None
-                flash(f"Connexion YouTube Music enregistrée ({ytm_account()}).", "ok")
+                flash(f"Connexion YouTube Music enregistrée ({name}).", "ok")
             except Exception as ex:
-                if os.path.exists(AUTH_F):
-                    os.remove(AUTH_F)
-                flash(f"En-têtes invalides : {ex}", "err")
+                flash(f"En-têtes invalides : {ex}"
+                      + (" — la session précédente est conservée." if os.path.exists(AUTH_F) else ""), "err")
         elif act == "logout" and os.path.exists(AUTH_F):
             os.remove(AUTH_F)
             flash("Session YouTube Music supprimée.", "ok")
@@ -262,8 +261,8 @@ def api_diagnostic():
     if sec.get("behind_proxy"):
         add("Sécurité", "Reverse proxy", "ok" if sec.get("proxy_ips") else "warn",
             f"adresse(s) de confiance : {sec['proxy_ips']}" if sec.get("proxy_ips") else
-            f"aucune adresse de proxy renseignée : n'importe quel appareil peut se faire passer pour une autre IP "
-            f"(dernière adresse vue : {LAST_PEER['addr']})")
+            f"aucune adresse de proxy renseignée : seuls les appareils du réseau local sont crus. Renseigne l'IP "
+            f"du proxy pour plus de sécurité (dernière adresse vue : {LAST_PEER['addr']})")
     add("Sécurité", "Connexion à l'interface", "ok" if request.is_secure else "info",
         "HTTPS" if request.is_secure else "HTTP (normal en local ; passe par Zoraxy en HTTPS pour un accès extérieur)")
     return jsonify(ok=True, checks=out)

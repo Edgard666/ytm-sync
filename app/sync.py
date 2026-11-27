@@ -3,6 +3,7 @@ import collections
 import copy
 import datetime as dt
 import os
+import re
 import secrets
 import threading
 import time
@@ -52,13 +53,17 @@ class SyncRunner:
         return True
 
     def _wrap(self, trigger, dry, only):
-        os.makedirs(LOG_DIR, exist_ok=True)
-        fn = os.path.join(LOG_DIR, f"run_{dt.datetime.now():%Y%m%d_%H%M%S}.log")
-        self._logf = open(fn, "w", encoding="utf-8")
-        summary = {"start": time.time(), "trigger": trigger, "status": "ok", "message": "",
-                   "log": os.path.basename(fn)}
+        summary = {"start": time.time(), "trigger": trigger, "status": "ok", "message": "", "log": ""}
         details = {}
         try:
+            try:
+                os.makedirs(LOG_DIR, exist_ok=True)
+                fn = os.path.join(LOG_DIR, f"run_{dt.datetime.now():%Y%m%d_%H%M%S}.log")
+                self._logf = open(fn, "w", encoding="utf-8")
+                summary["log"] = os.path.basename(fn)
+            except OSError as ex:   # disque plein, droits... : la synchro tourne quand meme, sans fichier
+                self._logf = None
+                self.log(f"!! Journal impossible à créer : {ex}")
             res = self._run(trigger, dry, only)
             details = res.pop("_details", {})
             summary.update(res)
@@ -68,19 +73,30 @@ class SyncRunner:
             summary.update(status="erreur", message=str(ex))
             self.log(f"!! ERREUR : {ex}")
         finally:
+            # chaque etape de nettoyage est isolee : la synchro ne reste jamais « en cours »
             summary["end"] = time.time()
-            with self.store.lock:
-                self.store.state["last_run"] = summary
-                self.store.state["history"] = ([summary] + self.store.state["history"])[:30]
-                self.store.save_state()
+            try:
+                with self.store.lock:
+                    self.store.state["last_run"] = summary
+                    self.store.state["history"] = ([summary] + self.store.state["history"])[:30]
+                    self.store.save_state()
+            except Exception as ex:
+                self.log(f"!! Enregistrement de l'état impossible : {ex}")
             try:
                 self._notify(summary, details)
             except Exception as ex:
                 self.log(f"!! Notification : {ex}")
             self.log(f"=== Fin ({summary['status']}) ===")
-            self._logf.close()
+            try:
+                if self._logf:
+                    self._logf.close()
+            except OSError:
+                pass
             self._logf = None
-            self._prune_logs()
+            try:
+                self._prune_logs()
+            except Exception:
+                pass
             self.progress = {}
             self.running = False
 
@@ -122,7 +138,8 @@ class SyncRunner:
 
     # -- coeur
     def _run(self, trigger, dry, only):
-        cfg = copy.deepcopy(self.store.cfg)
+        with self.store.lock:
+            cfg = copy.deepcopy(self.store.cfg)
         s, npl = cfg["sync"], cfg["nd_playlists"]
         DRY = s["dry_run"] if dry is None else dry
         t_th, a_th = float(s["title_threshold"]), float(s["artist_threshold"])
@@ -635,6 +652,16 @@ class SyncRunner:
 CATCHUP_DELAY = 120  # rattrapage d'une synchro manquee : 2 min apres le demarrage (le temps que tout demarre)
 
 
+HHMM_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+HEARTBEAT = {}   # derniere boucle de chaque tache de fond (pour /healthz)
+
+
+def parse_hhmm(v):
+    """'03:00' -> (3, 0) ; None si l'heure est invalide (25:00, 3h, vide...)."""
+    m = HHMM_RE.match(str(v or "").strip())
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
 def next_run_ts(sch, last_start, app_start):
     """Prochaine synchro. Calculee depuis la DERNIERE synchro (et non depuis le demarrage) : si le conteneur
     etait arrete a l'heure prevue, la synchro manquee est rattrapee peu apres le redemarrage."""
@@ -642,10 +669,7 @@ def next_run_ts(sch, last_start, app_start):
         return None
     base = last_start or app_start
     if sch.get("mode") == "daily":
-        try:
-            hh, mm = (int(x) for x in sch.get("daily_time", "03:00").split(":"))
-        except ValueError:
-            hh, mm = 3, 0
+        hh, mm = parse_hhmm(sch.get("daily_time")) or (3, 0)
         b = dt.datetime.fromtimestamp(base)
         cand = b.replace(hour=hh, minute=mm, second=0, microsecond=0)
         if cand.timestamp() <= base:
@@ -660,6 +684,7 @@ def next_run_ts(sch, last_start, app_start):
 
 def scheduler_loop(store, runner):
     while True:
+        HEARTBEAT["scheduler"] = time.time()
         try:
             if store.daily_backup():
                 runner.log("Sauvegarde quotidienne de la configuration effectuée (dossier backups)")

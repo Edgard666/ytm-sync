@@ -1,4 +1,4 @@
-# YTM Sync — v3.4.1
+# YTM Sync — v3.4.2
 
 YouTube Music → Navidrome → SoulSync, avec interface web.
 
@@ -69,6 +69,8 @@ GitHub Actions lance ces tests avant chaque construction d'image : si un test é
 | `tests/test_engine.py` | Moteur de synchro avec des faux clients en mémoire |
 | `tests/test_web.py` | Interface : connexion, CSRF, blocage, sessions, sauvegardes |
 | `tests/test_e2e.py` | **Bout en bout** : l'application parle en HTTP à de faux Navidrome, SoulSync et ntfy (`tests/fakes.py`) — synchro, comptes, suivi des téléchargements, échecs notifiés, ignorer/lier, protection playlist vide, favoris, export, mix, surveillance auto, qualité, doublons, sauvegarde, API externe, fuite de jeton |
+
+`tests/test_audit.py` : un test par correctif de l'audit de la v3.4.2 (playlist perso jamais écrasée, heure invalide, secrets liés à leur adresse, restauration tout-ou-rien, session YouTube conservée, proxy, healthcheck, arrêt propre…).
 
 Aucun service réel n'est contacté : les faux serveurs tournent dans le processus de test.
 

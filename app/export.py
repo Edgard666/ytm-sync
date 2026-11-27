@@ -71,9 +71,13 @@ def export_to_ytm(store, log, nd_playlist_id, name, privacy="PRIVATE", account="
         res.update(status="erreur", error=redact(ex))
         log(f"[Export] !! {redact(ex)}")
     finally:
-        res["not_found"] = res["not_found"][:300]
-        with store.lock:
-            store.state["exports"] = ([res] + store.state.get("exports", []))[:20]
-            store.save_state()
-        EXPORT_LOCK.release()
+        try:
+            res["not_found"] = res["not_found"][:300]
+            with store.lock:
+                store.state["exports"] = ([res] + store.state.get("exports", []))[:20]
+                store.save_state()
+        except Exception as ex:
+            log(f"[Export] !! Résultat non enregistré : {ex}")
+        finally:
+            EXPORT_LOCK.release()   # toujours libere, sinon plus aucun export possible jusqu'au redemarrage
     return res

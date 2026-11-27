@@ -102,6 +102,11 @@ def validate_cfg(cfg, defaults=None, path=""):
             cfg[k], _ = dv, fixed.append(p)
         elif isinstance(dv, str) and not isinstance(v, str):
             cfg[k], _ = dv, fixed.append(p)
+    if not path and isinstance(cfg.get("schedule"), dict):
+        import re
+        if not re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", str(cfg["schedule"].get("daily_time", ""))):
+            cfg["schedule"]["daily_time"] = "03:00"
+            fixed.append("schedule.daily_time")
     if not path:   # listes d'elements : playlists, comptes, corrections, titres ignores
         pls = [x for x in cfg.get("playlists", []) if isinstance(x, dict) and isinstance(x.get("id"), str)
                and isinstance(x.get("source"), str)]

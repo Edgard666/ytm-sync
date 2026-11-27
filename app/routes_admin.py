@@ -16,13 +16,24 @@ from .core import (
     MIN_PW,
     SECRET_MASK,
     SECRET_PATHS,
+    SECRET_TARGETS,
     _key_hash,
     app,
     login_required,
-    new_epoch,
+    dget,
+    dset,
+    guard_secrets,
+    runner,
+    same_target,
     store)
 from .services import audit, list_backups
 from .store import VERSION
+from .sync import parse_hhmm
+
+
+def busy():
+    """Une restauration pendant une synchro serait aussitot ecrasee par celle-ci."""
+    return "Une synchronisation est en cours : attends sa fin avant de restaurer." if runner.running else None
 
 
 @app.route("/settings", methods=["GET", "POST"])
@@ -31,7 +42,9 @@ def settings():
     c = store.cfg
     if request.method == "POST":
         f = request.form
-        snapshot = copy.deepcopy(c)
+        with store.lock:
+            snapshot = copy.deepcopy(store.cfg)
+        c = copy.deepcopy(snapshot)    # on prepare une copie : les taches de fond ne voient jamais un etat partiel
 
         def keep(new, old):
             if new == CLEAR_MARK:      # bouton « Effacer » a cote d'un champ secret
@@ -86,23 +99,32 @@ def settings():
                                      prefix=f.get("ndpl_prefix", ""), copy_description=f.get("ndpl_desc") == "on")
             c["schedule"].update(enabled=f.get("sch_enabled") == "on", mode=f.get("sch_mode", "interval"),
                                  interval_hours=max(0.25, float(f.get("sch_interval", 6))),
-                                 daily_time=f.get("sch_daily", "03:00") or "03:00")
+                                 daily_time=(f.get("sch_daily", "03:00") or "03:00").strip())
             c["logs_keep"] = max(1, int(f.get("logs_keep", 30)))
         except (ValueError, TypeError):
-            c.clear()                  # rien n'est applique si une valeur est invalide
-            c.update(snapshot)
             flash("Valeur numérique invalide : aucun paramètre n'a été modifié.", "err")
             return redirect(url_for("settings"))
+        if not parse_hhmm(c["schedule"]["daily_time"]):
+            flash(f"Heure de synchro invalide (« {c['schedule']['daily_time'][:10]} », format HH:MM de 00:00 "
+                  "à 23:59) : aucun paramètre n'a été modifié.", "err")
+            return redirect(url_for("settings"))
+        cleared = guard_secrets(c, snapshot, lambda fld: f.get(fld, "") not in ("", SECRET_MASK, CLEAR_MARK))
+        if cleared:
+            flash("Adresse modifiée : par sécurité, le secret enregistré n'est pas envoyé à la nouvelle adresse. "
+                  "Ressaisis-le pour : " + ", ".join(cleared) + ".", "err")
         newpw = f.get("new_password", "")
         if newpw:
             if len(newpw) < MIN_PW:
                 flash(f"Nouveau mot de passe trop court ({MIN_PW} caractères minimum) : non modifié.", "err")
             else:
                 c["auth"]["password_hash"] = generate_password_hash(newpw)
-                new_epoch()            # deconnecte toutes les autres sessions
+                c["auth"]["epoch"] = secrets.token_urlsafe(16)   # deconnecte toutes les autres sessions
                 session["ep"] = c["auth"]["epoch"]
                 audit("password", [], "Mot de passe de l'interface modifié (autres sessions déconnectées)")
-        store.save_cfg()
+        with store.lock:
+            store.cfg.clear()
+            store.cfg.update(c)
+            store.save_cfg()
         flash("Paramètres enregistrés.", "ok")
         return redirect(url_for("settings"))
     return render_template("settings.html", page="set", c=c, mask=SECRET_MASK, last_peer=LAST_PEER["addr"])
@@ -146,12 +168,22 @@ def api_backup_restore(day):
     if not re.match(r"^\d{8}$", day):
         abort(404)
     j = request.get_json(silent=True) or {}
-    try:
+    if busy():
+        return jsonify(ok=False, msg=busy())
+    try:   # tout est lu et verifie AVANT de toucher a quoi que ce soit
         with open(os.path.join(BACKUP_DIR, f"config-{day}.json"), encoding="utf-8") as f:
             cfg = json.load(f)
         assert isinstance(cfg, dict)
     except Exception as ex:
         return jsonify(ok=False, msg=f"Sauvegarde illisible : {ex}")
+    st = None
+    if j.get("with_state"):
+        try:
+            with open(os.path.join(BACKUP_DIR, f"state-{day}.json"), encoding="utf-8") as f:
+                st = json.load(f)
+            assert isinstance(st, dict)
+        except Exception as ex:
+            return jsonify(ok=False, msg=f"État des titres illisible dans cette sauvegarde : {ex} (rien n'a été modifié)")
     with store.lock:
         cur_auth = store.cfg["auth"]
         merged = _merge(cfg, DEFAULT_CFG)
@@ -160,15 +192,10 @@ def api_backup_restore(day):
         store.cfg.clear()
         store.cfg.update(merged)
         store.save_cfg()
-        if j.get("with_state"):
-            try:
-                with open(os.path.join(BACKUP_DIR, f"state-{day}.json"), encoding="utf-8") as f:
-                    st = json.load(f)
-                store.state.clear()
-                store.state.update(_merge(st, DEFAULT_STATE))
-                store.save_state()
-            except Exception as ex:
-                return jsonify(ok=False, msg=f"Configuration restaurée, mais état illisible : {ex}")
+        if st is not None:
+            store.state.clear()
+            store.state.update(_merge(st, DEFAULT_STATE))
+            store.save_state()
     audit("playlist", [], f"Sauvegarde du {day[6:]}/{day[4:6]}/{day[:4]} restaurée"
           + (" (avec l'état des titres)" if j.get("with_state") else ""))
     return jsonify(ok=True, fixed=fixed)
@@ -188,6 +215,8 @@ def backup():
             a["password"] = ""
         cfg["notify"]["ntfy"]["token"] = cfg["notify"]["gotify"]["token"] = cfg["notify"]["email"]["password"] = ""
         cfg["notify"]["webhook"]["url"] = ""
+        for k in ("api_key", "api_key_hash", "api_key_created"):
+            cfg["security"][k] = ""
     data = {"app": "ytm-sync", "version": VERSION, "exported_at": dt.datetime.now().isoformat(timespec="seconds"),
             "with_secrets": with_secrets, "config": cfg,
             "downloaded": store.state.get("downloaded", {})}
@@ -206,20 +235,35 @@ def restore():
     except Exception:
         flash("Fichier de sauvegarde invalide.", "err")
         return redirect(url_for("settings") + "#backup")
+    if busy():
+        flash(busy(), "err")
+        return redirect(url_for("settings") + "#backup")
     new = data["config"]
     new.pop("auth", None)
     with store.lock:
         old = store.cfg
-        # secrets vides dans la sauvegarde : on garde ceux actuellement configures
-        for a, b in SECRET_PATHS:
-            if not (new.get(a) or {}).get(b):
-                new.setdefault(a, {})[b] = old.get(a, {}).get(b, "")
-        for ch, key in (("ntfy", "token"), ("gotify", "token"), ("email", "password"), ("webhook", "url")):
-            if not new.get("notify", {}).get(ch, {}).get(key):
-                new.setdefault("notify", {}).setdefault(ch, {})[key] = old["notify"][ch][key]
+        # secrets vides dans la sauvegarde : on garde ceux actuellement configures,
+        # mais seulement si le service est a la meme adresse
+        kept = []
+        for sec, tgt, _field, label in SECRET_TARGETS:
+            if not dget(new, sec) and dget(old, sec):
+                if same_target(dget(new, tgt), dget(old, tgt)):
+                    dset(new, sec, dget(old, sec))
+                else:
+                    kept.append(label)
+        if isinstance(new.get("notify"), dict) and isinstance(new["notify"].get("webhook"), dict) \
+                and not new["notify"]["webhook"].get("url"):
+            new["notify"]["webhook"]["url"] = old["notify"]["webhook"]["url"]
+        same_nd = same_target(dget(new, ("navidrome", "url")), dget(old, ("navidrome", "url")))
         olda = {a["user"]: a["password"] for a in old.get("nd_accounts", [])}
-        for a in new.get("nd_accounts", []):
-            a["password"] = a.get("password") or olda.get(a["user"], "")
+        for a in new.get("nd_accounts", []) if isinstance(new.get("nd_accounts"), list) else []:
+            if isinstance(a, dict) and not a.get("password") and same_nd:
+                a["password"] = olda.get(a.get("user"), "")
+        sec_new = new.get("security") if isinstance(new.get("security"), dict) else {}
+        if not sec_new.get("api_key_hash"):   # export sans secrets : la cle API actuelle reste valable
+            for k in ("api_key", "api_key_hash", "api_key_created"):
+                if old["security"].get(k):
+                    new.setdefault("security", {})[k] = old["security"][k]
         from .store import DEFAULT_CFG, _merge, validate_cfg
         merged = _merge(new, DEFAULT_CFG)
         fixed = validate_cfg(merged)
@@ -230,6 +274,8 @@ def restore():
         if request.form.get("with_history") == "on" and isinstance(data.get("downloaded"), dict):
             store.state.setdefault("downloaded", {}).update(data["downloaded"])
             store.save_state()
+    if kept:
+        flash("Adresse différente dans la sauvegarde : secret à ressaisir pour " + ", ".join(kept) + ".", "err")
     if fixed:
         flash("Réglages invalides dans le fichier, remplacés par les valeurs par défaut : " + ", ".join(fixed[:10]), "err")
     flash(f"Sauvegarde du {data.get('exported_at', '?')} restaurée ({len(merged['playlists'])} playlists, "

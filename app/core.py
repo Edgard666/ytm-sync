@@ -35,12 +35,22 @@ class _ProxyAware:
         LAST_PEER["addr"] = peer
         trusted = [x.strip() for x in (sec.get("proxy_ips") or "").replace(";", ",").split(",") if x.strip()]
         # les en-tetes X-Forwarded-* ne sont crus que s'ils viennent du proxy (sinon : falsifiables)
-        if sec.get("behind_proxy") and (not trusted or peer in trusted):
+        if sec.get("behind_proxy") and (peer in trusted or (not trusted and _local(peer))):
             return self.fixed(environ, start_response)
         return self.wsgi(environ, start_response)
 
 
 LAST_PEER = {"addr": ""}  # derniere adresse directe vue (aide a renseigner l'IP du proxy)
+
+
+def _local(addr):
+    """Sans liste d'IP de proxy : seul un proxy du reseau local (ou Docker) est cru, jamais Internet."""
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(addr)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False
 
 
 app.wsgi_app = _ProxyAware(app.wsgi_app)
@@ -139,8 +149,10 @@ COMPRESSIBLE = {"application/json", "text/html", "text/csv", "text/plain", "text
 def _gzip(r):
     """Compression gzip des reponses texte (liste des titres : ~5 a 10 fois plus legere)."""
     import gzip
+    if r.mimetype in COMPRESSIBLE and not r.direct_passthrough:
+        r.vary.add("Accept-Encoding")   # la reponse depend de l'en-tete, compressee ou non
     if (r.direct_passthrough or r.status_code != 200 or r.mimetype not in COMPRESSIBLE
-            or "gzip" not in request.headers.get("Accept-Encoding", "") or "Content-Encoding" in r.headers):
+            or not request.accept_encodings["gzip"] or "Content-Encoding" in r.headers):
         return r
     data = r.get_data()
     if len(data) < 1500:
@@ -148,7 +160,6 @@ def _gzip(r):
     r.set_data(gzip.compress(data, compresslevel=5))
     r.headers["Content-Encoding"] = "gzip"
     r.headers["Content-Length"] = str(len(r.get_data()))
-    r.headers.add("Vary", "Accept-Encoding")
     return r
 
 
@@ -215,6 +226,45 @@ ND_EMPTY = dict(nd_id=None, nd_artist=None, nd_title=None, nd_album=None, nd_dur
 
 # ------------------------------------------------------------------ sauvegarde / restauration
 SECRET_PATHS = [("navidrome", "password"), ("soulsync", "api_key"), ("mqtt", "password")]
+# secret -> adresse a laquelle il est envoye (+ champ du formulaire) : un secret enregistre n'est jamais
+# reutilise vers une AUTRE adresse sans etre ressaisi (sinon : changer l'URL suffirait a le recuperer)
+SECRET_TARGETS = [(("navidrome", "password"), ("navidrome", "url"), "nd_pass", "Navidrome"),
+                  (("soulsync", "api_key"), ("soulsync", "url"), "ss_key", "SoulSync"),
+                  (("mqtt", "password"), ("mqtt", "host"), "mqtt_pass", "MQTT"),
+                  (("notify", "ntfy", "token"), ("notify", "ntfy", "url"), "ntfy_token", "ntfy"),
+                  (("notify", "gotify", "token"), ("notify", "gotify", "url"), "gotify_token", "Gotify"),
+                  (("notify", "email", "password"), ("notify", "email", "host"), "mail_pass", "e-mail")]
+
+
+def dget(d, path):
+    for k in path:
+        d = (d or {}).get(k) if isinstance(d, dict) else None
+    return d
+
+
+def dset(d, path, v):
+    for k in path[:-1]:
+        d = d.setdefault(k, {})
+    d[path[-1]] = v
+
+
+def guard_secrets(new, old, retyped=lambda field: False):
+    """Efface les secrets conserves alors que leur adresse a change. Retourne les services concernes."""
+    cleared = []
+    for sec, tgt, field, label in SECRET_TARGETS:
+        if (dget(old, sec) and dget(new, sec) == dget(old, sec) and not retyped(field)
+                and not same_target(dget(new, tgt), dget(old, tgt))):
+            dset(new, sec, "")
+            cleared.append(label)
+    if not same_target(dget(new, ("navidrome", "url")), dget(old, ("navidrome", "url"))):
+        olda = {a.get("user"): a.get("password") for a in old.get("nd_accounts", [])}
+        n = 0
+        for a in new.get("nd_accounts", []):
+            if a.get("password") and a.get("password") == olda.get(a.get("user")):
+                a["password"], n = "", n + 1
+        if n:
+            cleared.append(f"{n} compte(s) Navidrome supplémentaire(s)")
+    return cleared
 
 
 # ------------------------------------------------------------------ API externe (Home Assistant)

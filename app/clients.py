@@ -34,22 +34,40 @@ def watch_as_playlist(yt, pid, limit=100):
 
 
 def ytm_setup_from_headers(raw):
+    """Enregistre une nouvelle session YouTube Music. Elle est d'abord verifiee dans un fichier temporaire :
+    des en-tetes invalides ne font jamais perdre la session qui fonctionnait. Retourne le nom du compte."""
     import ytmusicapi
-    ytmusicapi.setup(filepath=AUTH_F, headers_raw=raw)
-    os.chmod(AUTH_F, 0o600)
+    tmp = AUTH_F + ".new"
+    try:
+        ytmusicapi.setup(filepath=tmp, headers_raw=raw)
+        os.chmod(tmp, 0o600)
+        name = _account_name(_ytm_from(tmp))
+        os.replace(tmp, AUTH_F)
+        return name
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
-def ytm_account():
-    """Retourne le nom du compte connecte, ou None."""
-    if not os.path.exists(AUTH_F):
-        return None
-    yt = ytm_client()
+def _ytm_from(path):
+    from ytmusicapi import YTMusic
+    return YTMusic(path)
+
+
+def _account_name(yt):
     try:
         info = yt.get_account_info()
         return info.get("accountName") or info.get("channelHandle") or "connecte"
     except Exception:
         yt.get_library_playlists(limit=1)  # leve une exception si session invalide
         return "connecte"
+
+
+def ytm_account():
+    """Retourne le nom du compte connecte, ou None."""
+    if not os.path.exists(AUTH_F):
+        return None
+    return _account_name(ytm_client())
 
 
 # ------------------------------------------------------------------ Navidrome
@@ -130,10 +148,13 @@ class Navidrome:
         self.last_diff = None
         data = [("songId", i) for i in song_ids]
         comment = ((description or "").strip()[:500] + "\n\n" if (description or "").strip() else "") + self.SIGNATURE
-        pid, notes = existing.get(name), []
-        if not pid and known_id and known_id in existing.values():
-            old_name = next(n for n, i in existing.items() if i == known_id)
+        pid, notes, adopted = None, [], False
+        if known_id and known_id in existing.values():          # playlist deja creee par YTM Sync
             pid = known_id
+            old_name = next(n for n, i in existing.items() if i == known_id)
+        elif existing.get(name):                               # meme nom : a verifier avant d'y toucher
+            pid, old_name, adopted = existing[name], name, True
+        if pid and old_name != name and not adopted:
             if dry:
                 notes.append(f"serait renommée (était « {old_name} »)")
             else:
@@ -143,6 +164,10 @@ class Navidrome:
                 notes.append(f"renommée (était « {old_name} »)")
         if pid:
             pl = self.call("getPlaylist", id=pid)["playlist"]
+            if adopted and self.SIGNATURE not in (pl.get("comment") or ""):
+                raise RuntimeError(f"une playlist « {name} » qui n'a pas été créée par YTM Sync existe déjà "
+                                   "dans Navidrome : elle n'est pas modifiée. Renomme-la, ou choisis un autre nom "
+                                   "dans « Playlists »")
             cur = [e["id"] for e in pl.get("entry", [])]
             cur_lab = {e["id"]: f"{e.get('artist')} — {e.get('title')}" for e in pl.get("entry", [])}
             new_set, cur_set = set(song_ids), set(cur)

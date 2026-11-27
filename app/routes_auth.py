@@ -1,5 +1,6 @@
 """Routes : installation, connexion, deconnexion, sessions."""
 import hmac
+import os
 import secrets
 import time
 
@@ -93,4 +94,15 @@ def api_revoke_sessions():
 
 @app.route("/healthz")
 def healthz():
-    return "ok"
+    """Sante pour Docker : stockage accessible en ecriture et planificateur vivant (aucun appel externe)."""
+    from .store import CONFIG_DIR
+    from .sync import HEARTBEAT
+    problems = []
+    if not os.access(CONFIG_DIR, os.W_OK):
+        problems.append("dossier /config non accessible en écriture")
+    hb = HEARTBEAT.get("scheduler")
+    if hb and time.time() - hb > 300:
+        problems.append("planificateur bloqué")
+    if problems:
+        return jsonify(ok=False, problems=problems), 503
+    return jsonify(ok=True)

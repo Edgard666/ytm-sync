@@ -1,5 +1,6 @@
 """YTM Sync — point d'entree : enregistre les routes et demarre les taches de fond et le serveur web."""
 import os
+import signal
 import threading
 
 from waitress import serve
@@ -16,10 +17,23 @@ from .core import (CLEAR_MARK, FAILS, SECRET_MASK, _key_hash, _ProxyAware, safe_
 from .services import csv_cell, find_duplicates  # noqa: E402
 
 
+def _shutdown(signum, frame):
+    """docker stop (SIGTERM) : etat enregistre puis arret immediat, au lieu d'etre tue au bout de 10 s."""
+    print("Arrêt demandé : enregistrement de l'état…", flush=True)
+    if store.lock.acquire(timeout=5):   # une ecriture en cours se termine d'abord
+        try:
+            store.save_state()
+        except Exception as ex:
+            print(f"!! État non enregistré : {ex}", flush=True)
+    os._exit(0)
+
+
 def main():
     from .mqtt import MqttBridge
     from .store import AUTH_F as _A, CFG_F, STATE_F, secure_file
     os.umask(0o077)
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
     for f in (CFG_F, STATE_F, _A):
         if os.path.exists(f):
             secure_file(f)
